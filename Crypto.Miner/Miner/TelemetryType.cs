@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace CryptoPool.IO.Miner
+namespace Crypto.IO.Miner
 {
     /// <summary>
     /// Keeps track of progress for farm and miners
@@ -37,14 +37,14 @@ namespace CryptoPool.IO.Miner
             var duration = DateTime.Now - Start;
             var hours = duration.Hours;
             var hoursString = hours > 9 ? hours > 99 ? $"{hours:3}" : $"{hours:2}" : $"{hours:1}";
-            b.Append($"{Ansi.Green}{hoursString}:{duration.Minutes,2}{Ansi.Reset} {Ansi.WhiteBold}{Farm.Solutions}{Ansi.Reset} {Ansi.TealBold}{Farm.Hashrate.ToHashPerSecond()}{Ansi.Reset} -");
+            b.Append($"{Ansi.Green}{hoursString}:{duration.Minutes,2}{Ansi.Reset} {Ansi.WhiteBold}{Farm.Solutions}{Ansi.Reset} {Ansi.TealBold}{Farm.Hashrate.ToFormattedHashes()}{Ansi.Reset} -");
 
             var i = -1;                // Current miner index
             var m = Miners.Count - 1;  // Max miner index
             foreach (var miner in Miners)
             {
                 i++;
-                b.Append($"{(miner.Paused ? Ansi.Red : null)}{miner.Prefix}{i} {Ansi.TealBold}{miner.Hashrate.ToHashPerSecond()}{Ansi.Reset}");
+                b.Append($"{(miner.Paused ? Ansi.Red : null)}{miner.Prefix}{i} {Ansi.TealBold}{miner.Hashrate.ToFormattedHashes()}{Ansi.Reset}");
 
                 if (Hwmon)
                     b.Append($" {Ansi.Teal}{miner.Sensors}{Ansi.Reset}");

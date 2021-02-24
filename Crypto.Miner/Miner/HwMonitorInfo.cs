@@ -1,4 +1,4 @@
-namespace CryptoPool.IO.Miner
+namespace Crypto.IO.Miner
 {
     /// <summary>
     /// HwMonitorInfo

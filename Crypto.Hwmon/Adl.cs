@@ -3,7 +3,7 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace CryptoPool.IO.Hwmon
+namespace Crypto.IO.Hwmon
 {
     public class Adl : IHwmon
     {
@@ -199,11 +199,19 @@ namespace CryptoPool.IO.Hwmon
             return _devices[_deviceIds[index]].AdapterName;
         }
 
-        public string GetGpuPciId(int index)
+        public string GetPciId(int index)
         {
             if (index < 0 || index >= _gpuCount)
                 return null;
             return $"{0,04:x}:{_devices[_deviceIds[index]].BusNumber,02:x}:{_devices[_deviceIds[index]].DeviceNumber,02:x}";
+            //    std::ostringstream oss;
+            //    std::string uniqueId;
+            //    oss << std::setfill('0') << std::setw(2) << std::hex
+            //        << (unsigned int)adlh->devs[adlh->phys_logi_device_id[i]].iBusNumber << ":"
+            //        << std::setw(2)
+            //        << (unsigned int)(adlh->devs[adlh->phys_logi_device_id[i]].iDeviceNumber)
+            //        << ".0";
+            //uniqueId = oss.str();
         }
 
         public uint? GetTempC(int index)

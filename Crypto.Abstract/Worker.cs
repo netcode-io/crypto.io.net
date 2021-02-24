@@ -1,7 +1,8 @@
+using System;
 using System.Diagnostics;
 using System.Threading;
 
-namespace System
+namespace Crypto.IO
 {
     public abstract class Worker
     {

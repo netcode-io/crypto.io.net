@@ -1,6 +1,4 @@
-using CryptoPool.IO.Ethash;
-
-namespace CryptoPool.IO.Miner
+namespace Crypto.IO.Miner
 {
     /// <summary>
     /// Hosting one or more Miners.

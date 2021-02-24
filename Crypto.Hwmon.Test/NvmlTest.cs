@@ -1,6 +1,6 @@
 using Xunit;
 
-namespace CryptoPool.IO.Hwmon
+namespace Crypto.IO.Hwmon
 {
     public class NvmlTest
     {
@@ -15,6 +15,13 @@ namespace CryptoPool.IO.Hwmon
         {
             using var nvml = new Nvml();
             Assert.NotEmpty(nvml.GpuName(0));
+        }
+
+        [Fact]
+        public void GetPciId()
+        {
+            using var nvml = new Nvml();
+            Assert.NotEmpty(nvml.GetPciId(0));
         }
 
         [Fact]

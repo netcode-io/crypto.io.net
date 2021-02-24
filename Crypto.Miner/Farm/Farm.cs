@@ -1,8 +1,8 @@
-﻿#define ETH_ETHASHCUDA
-#define ETH_ETHASHCL
-#define ETH_ETHASHCPU
-using CryptoPool.IO.Ethash;
-using CryptoPool.IO.Miner;
+﻿//#define ETH_ETHASHCUDA
+//#define ETH_ETHASHCL
+//#define ETH_ETHASHCPU
+using Crypto.IO.Hwmon;
+using Crypto.IO.Miner;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -12,7 +12,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace CryptoPool.IO
+namespace Crypto.IO
 {
     /// <summary>
     /// Farm
@@ -31,8 +31,8 @@ namespace CryptoPool.IO
 
         TelemetryType _telemetry;  // Holds progress and status info for farm and miners
 
-        Action<Solution> _onSolutionFound;
-        Action _onMinerRestart;
+        Action<Farm, Solution> _onSolutionFound;
+        Action<Farm> _onMinerRestart;
 
         FarmOptions _options;  // Own Farm Settings
         MinerCUOptions _cuOptions;  // Cuda settings passed to CUDA Miner instantiator
@@ -52,21 +52,22 @@ namespace CryptoPool.IO
         int _nonceSegmentWidth = 32;
 
         // Wrappers for hardware monitoring libraries and their mappers
-        object _nvmlh = null;
+        Nvml _nvml = null;
         Dictionary<string, int> _mapNvmlHandle = new Dictionary<string, int>();
 
-        object _adlh = null;
+        Adl _adl = null;
         Dictionary<string, int> _mapAdlHandle = new Dictionary<string, int>();
 
-        static Farm _this;
         readonly Dictionary<string, DeviceDescriptor> _devices;
 
+        public static Farm F;
         public Farm(Dictionary<string, DeviceDescriptor> devices,
             FarmOptions options,
             MinerCUOptions cuOptions,
             MinerCLOptions clOptions,
             MinerCPOptions cpOptions)
         {
+            F = this;
             _devices = devices;
             _options = options;
             _cuOptions = cuOptions;
@@ -74,75 +75,51 @@ namespace CryptoPool.IO
             _cpOptions = cpOptions;
             Console.WriteLine("Farm::Farm() begin");
 
-            _this = this;
-
             // Init HWMON if needed
             if (_options.HwMon != 0)
             {
                 _telemetry.Hwmon = true;
 
                 // Scan devices to identify which hw monitors to initialize
-                bool needAdlh = false;
-                bool needNvmlh = false;
+                var needAdl = false;
+                var needNvml = false;
                 foreach (var it in _devices.Values)
                 {
                     if (it.SubscriptionType == DeviceSubscriptionType.Cuda)
                     {
-                        needNvmlh = true;
+                        needNvml = true;
                         continue;
                     }
                     if (it.SubscriptionType == DeviceSubscriptionType.OpenCL)
                     {
                         if (it.CLPlatformType == PlatformCLType.Nvidia)
                         {
-                            needNvmlh = true;
+                            needNvml = true;
                             continue;
                         }
                         if (it.CLPlatformType == PlatformCLType.Amd)
                         {
-                            needAdlh = true;
+                            needAdl = true;
                             continue;
                         }
                     }
                 }
 
-                // Adlh
-                if (needAdlh)
-                    _adlh = wrap_adl_create();
-                if (_adlh != null)
-                {
+                // Adl
+                if (needAdl)
+                    _adl = new Adl();
+                if (_adl != null)
                     // Build Pci identification as done in miners.
-                    for (var i = 0; i < _adlh.adl_gpucount; i++)
-                    {
-                        //    std::ostringstream oss;
-                        //    std::string uniqueId;
-                        //    oss << std::setfill('0') << std::setw(2) << std::hex
-                        //        << (unsigned int)adlh->devs[adlh->phys_logi_device_id[i]].iBusNumber << ":"
-                        //        << std::setw(2)
-                        //        << (unsigned int)(adlh->devs[adlh->phys_logi_device_id[i]].iDeviceNumber)
-                        //        << ".0";
-                        //uniqueId = oss.str();
-                        //map_adl_handle[uniqueId] = i;
-                    }
-                }
+                    for (var i = 0; i < _adl.GpuCount; i++)
+                        _mapAdlHandle[_adl.GetPciId(i)] = i;
 
-                // Nvmlh
-                if (needNvmlh)
-                    _nvmlh = wrap_nvml_create();
-                if (_nvmlh != null)
-                {
+                // Nvml
+                if (needNvml)
+                    _nvml = new Nvml();
+                if (_nvml != null)
                     // Build Pci identification as done in miners.
-                    for (var i = 0; i < _nvmlh.nvml_gpucount; i++)
-                    {
-                        //    std::ostringstream oss;
-                        //    std::string uniqueId;
-                        //    oss << std::setfill('0') << std::setw(2) << std::hex
-                        //        << (unsigned int)nvmlh->nvml_pci_bus_id[i] << ":" << std::setw(2)
-                        //        << (unsigned int)(nvmlh->nvml_pci_device_id[i] >> 3) << ".0";
-                        //uniqueId = oss.str();
-                        //map_nvml_handle[uniqueId] = i;
-                    }
-                }
+                    for (var i = 0; i < _nvml.GpuCount; i++)
+                        _mapNvmlHandle[_nvml.GetPciId(i)] = i;
             }
 
             // Initialize nonce_scrambler
@@ -193,13 +170,13 @@ namespace CryptoPool.IO
         {
             if (_currentWp.Epoch != wp.Epoch)
             {
-                var ec = Ethash.GetGlobalEpochContext(wp.Epoch);
-                _currentEc.EpochNumber = wp.Epoch;
-                _currentEc.LightNumItems = ec.LightCacheNumItems;
-                _currentEc.LightSize = Ethash.GetLightCacheSize(ec.LightCacheNumItems);
-                _currentEc.DagNumItems = ec.FullDatasetNumItems;
-                _currentEc.DagSize = Ethash.GetFullDatasetSize(ec.FullDatasetNumItems);
-                _currentEc.LightCache = ec.LightCcache;
+                //var ec = Ethash.GetGlobalEpochContext(wp.Epoch);
+                //_currentEc.EpochNumber = wp.Epoch;
+                //_currentEc.LightNumItems = ec.LightCacheNumItems;
+                //_currentEc.LightSize = Ethash.GetLightCacheSize(ec.LightCacheNumItems);
+                //_currentEc.DagNumItems = ec.FullDatasetNumItems;
+                //_currentEc.DagSize = Ethash.GetFullDatasetSize(ec.FullDatasetNumItems);
+                //_currentEc.LightCache = ec.LightCcache;
                 foreach (var miner in _miners)
                     miner.SetEpoch(_currentEc);
             }
@@ -353,13 +330,13 @@ namespace CryptoPool.IO
         /// <summary>
         /// Stop all mining activities and Starts them again.
         /// </summary>
-        public void Restart() => _onMinerRestart?.Invoke();
+        public void Restart() => _onMinerRestart?.Invoke(this);
 
         /// <summary>
         /// Stop all mining activities and Starts them again (async post).
         /// </summary>
         public Task RestartAsync() => _onMinerRestart != null
-            ? Task.Run(_onMinerRestart)
+            ? Task.Run(() => _onMinerRestart(this))
             : Task.CompletedTask;
 
         /// <summary>
@@ -465,21 +442,21 @@ namespace CryptoPool.IO
         /// </summary>
         /// <param name="bi">The now-valid header.</param>
         /// <returns>true if the header was good and that the Farm should pause until more work is submitted.</returns>
-        public void OnSolutionFound(Action<Solution> handler) => _onSolutionFound = handler;
+        public void OnSolutionFound(Action<Farm, Solution> handler) => _onSolutionFound = handler;
 
-        public void OnMinerRestart(Action handler) => _onMinerRestart = handler;
+        public void OnMinerRestart(Action<Farm> handler) => _onMinerRestart = handler;
 
         /// <summary>
         /// Gets the actual start nonce of the segment picked by the farm.
         /// </summary>
         /// <returns></returns>
-        public override ulong GetNonceScrambler() => _nonceScrambler;
+        public ulong GetNonceScrambler() => _nonceScrambler;
 
         /// <summary>
         /// Gets the actual width of each subsegment assigned to miners.
         /// </summary>
         /// <returns></returns>
-        public override int GetSegmentWidth() => _nonceSegmentWidth;
+        public int GetSegmentWidth() => _nonceSegmentWidth;
 
         /// <summary>
         /// Sets the actual start nonce of the segment picked by the farm.
@@ -538,23 +515,23 @@ namespace CryptoPool.IO
             if (!_options.NoEval)
             {
                 var r = EthashAux.Eval(s.Work.Epoch, s.Work.Header, s.Nonce);
-                if (r.Value > s.Work.Boundary)
+                if (r.value > s.Work.Boundary)
                 {
                     AccountSolution(s.MIdx, SolutionAccounting.Failed);
                     //WARNING
                     Console.WriteLine($"GPU {s.MIdx} gave incorrect result. Lower overclocking values if it happens frequently.");
                     return;
                 }
-                _onSolutionFound(new Solution
+                _onSolutionFound(this, new Solution
                 {
                     Nonce = s.Nonce,
-                    MixHash = r.MixHash,
+                    MixHash = r.mixHash,
                     Work = s.Work,
                     TStamp = s.TStamp,
                     MIdx = s.MIdx
                 });
             }
-            else _onSolutionFound(s);
+            else _onSolutionFound(this, s);
 
 #if DEBUG
             //if (_logOptions & LOG_SUBMIT)
@@ -588,7 +565,7 @@ namespace CryptoPool.IO
                 {
                     var hwInfo = miner.HwmonInfo;
                     int tempC = 0, fanpcnt = 0, powerW = 0;
-                    if (hwInfo.DeviceType == HwMonitorInfoType.NVidia && _nvmlh != null)
+                    if (hwInfo.DeviceType == HwMonitorInfoType.NVidia && _nvml != null)
                     {
                         var devIdx = hwInfo.DeviceIndex;
                         if (devIdx == -1 && !string.IsNullOrEmpty(hwInfo.DevicePciId))
@@ -603,7 +580,7 @@ namespace CryptoPool.IO
                     }
                     else if (hwInfo.DeviceType == HwMonitorInfoType.Amd)
                     {
-                        if (_adlh != null)  // Windows only for AMD
+                        if (_adl != null)  // Windows only for AMD
                         {
                             var devIdx = hwInfo.DeviceIndex;
                             if (devIdx == -1 && !string.IsNullOrEmpty(hwInfo.DevicePciId))

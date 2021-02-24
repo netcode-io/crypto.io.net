@@ -1,4 +1,4 @@
-namespace System
+namespace Crypto.IO
 {
     public enum WorkerState
     {

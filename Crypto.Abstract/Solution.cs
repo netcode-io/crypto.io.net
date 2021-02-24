@@ -1,6 +1,6 @@
 using System;
 
-namespace CryptoPool.IO.Ethash
+namespace Crypto.IO
 {
     /// <summary>
     /// Solution

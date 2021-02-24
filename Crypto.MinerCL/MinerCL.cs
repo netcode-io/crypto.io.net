@@ -1,9 +1,9 @@
 namespace Crypto.IO.Miner
 {
     /// <summary>
-    /// Holds settings for CPU Miner
+    /// MinerCL
     /// </summary>
-    public class MinerCPOptions : MinerOptions
+    public class MinerCL
     {
     }
 }

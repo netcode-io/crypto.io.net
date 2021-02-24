@@ -1,4 +1,4 @@
-﻿namespace CryptoPool.IO
+﻿namespace Crypto.IO
 {
     /// <summary>
     /// FarmOptions

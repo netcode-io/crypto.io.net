@@ -1,6 +1,6 @@
 using System;
 
-namespace CryptoPool.IO.Hwmon
+namespace Crypto.IO.Hwmon
 {
     public interface IHwmon : IDisposable
     {

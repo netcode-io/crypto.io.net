@@ -1,6 +1,6 @@
 using System;
 
-namespace CryptoPool.IO.Miner
+namespace Crypto.IO.Miner
 {
     /// <summary>
     /// Pause mining

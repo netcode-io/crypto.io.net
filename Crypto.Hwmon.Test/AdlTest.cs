@@ -1,6 +1,6 @@
 using Xunit;
 
-namespace CryptoPool.IO.Hwmon
+namespace Crypto.IO.Hwmon
 {
     public class AdlTest
     {
@@ -18,10 +18,10 @@ namespace CryptoPool.IO.Hwmon
         }
 
         [Fact]
-        public void GetGpuPciId()
+        public void GetPciId()
         {
             using var adl = new Adl();
-            Assert.NotEmpty(adl.GetGpuPciId(0));
+            Assert.NotEmpty(adl.GetPciId(0));
         }
 
         [Fact]

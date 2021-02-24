@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 
-namespace CryptoPool.IO
+namespace Crypto.IO
 {
     /// <summary>
     /// PoolOptions

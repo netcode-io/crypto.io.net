@@ -1,8 +1,7 @@
-using CryptoPool.IO.Ethash;
 using System;
 using System.Threading;
 
-namespace CryptoPool.IO.Miner
+namespace Crypto.IO.Miner
 {
     /// <summary>
     /// A miner - a member and adoptee of the Farm.

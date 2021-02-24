@@ -1,4 +1,4 @@
-namespace CryptoPool.IO.Ethash
+namespace Crypto.IO
 {
     public class WorkPackage
     {

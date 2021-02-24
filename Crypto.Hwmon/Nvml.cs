@@ -4,7 +4,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace CryptoPool.IO.Hwmon
+namespace Crypto.IO.Hwmon
 {
     public class Nvml : IHwmon
     {
@@ -84,6 +84,19 @@ namespace CryptoPool.IO.Hwmon
             if (DeviceGetName(_devices[index], name, name.Capacity) != Result.OK)
                 return null;
             return name.ToString();
+        }
+
+        public string GetPciId(int index)
+        {
+            if (index < 0 || index >= _gpuCount)
+                return null;
+            return $"{0,04:x}:{_pciBusIds[index],02:x}:{_pciDeviceIds[index],02:x}";
+            //    std::ostringstream oss;
+            //    std::string uniqueId;
+            //    oss << std::setfill('0') << std::setw(2) << std::hex
+            //        << (unsigned int)nvmlh->nvml_pci_bus_id[i] << ":" << std::setw(2)
+            //        << (unsigned int)(nvmlh->nvml_pci_device_id[i] >> 3) << ".0";
+            //uniqueId = oss.str();
         }
 
         public uint? GetTempC(int index)
