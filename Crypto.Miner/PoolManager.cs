@@ -437,7 +437,7 @@ namespace Crypto.IO
 
         public double CurrentDifficulty => _currentWp == null
             ? 0.0
-            : _currentWp.Boundary.Data.FromHashToTarget();
+            : _currentWp.Boundary.Data.ToTargetFromHash();
 
         public int ConnectionSwitches => _connectionSwitches; //: atomic
 

@@ -71,6 +71,7 @@ namespace System
             public int StratumMode;
             public bool StratumModeConfirmed;
             public bool Unrecoverable;
+            public double TotalDuration;
         }
 
         static UriState State(this Uri source, Action<UriState> action = null) => new UriState();
@@ -89,5 +90,8 @@ namespace System
         public static UriFamily Family(this Uri source) => _schemes[source.Scheme].family;
         public static UriSecurity Security(this Uri source) => _schemes[source.Scheme].security;
         public static int Version(this Uri source) => _schemes[source.Scheme].version;
+
+        public static void AddDuration(this Uri source, double minutes) => State(source, s => s.TotalDuration += minutes);
+        public static double Duration(this Uri source) => State(source).TotalDuration;
     }
 }

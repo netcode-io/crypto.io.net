@@ -8,7 +8,7 @@ namespace Crypto.IO
     {
         string _name;
         //public object _workLock = new object();    // Lock for the network existence.
-        Thread _work;       // The network thread.
+        Thread _work; // The network thread.
         int _state = (int)WorkerState.Starting; //: atomic
 
         public Worker(string name) => _name = name;
@@ -44,6 +44,6 @@ namespace Crypto.IO
         /// Whether or not this worker should stop
         public bool ShouldStop => _state != (int)WorkerState.Started;
 
-        public abstract void WorkLoop();
+        protected abstract void WorkLoop();
     }
 }
