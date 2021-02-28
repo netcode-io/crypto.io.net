@@ -450,10 +450,9 @@ Connection: close
             return null;
         }
 
-        void Send(object req) => Send(JsonSerializer.Serialize(req));
-        void Send(string req)
+        void Send(object req)
         {
-            var line = req;
+            var line = req is string z ? z : JsonSerializer.Serialize(req);
             _txQueue.Enqueue(line);
             if (Interlocked.CompareExchange(ref _txPending, 0, 1) != 1)
                 BeginConnect();

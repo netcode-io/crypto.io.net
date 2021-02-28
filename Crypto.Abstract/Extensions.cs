@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Linq;
 using System.Numerics;
 
 namespace Crypto.IO
@@ -80,5 +81,8 @@ namespace Crypto.IO
 
         public static string ToFormattedMemory(this float mem, int precision = 2, bool addSuffix = true) =>
             ToScaledSize(mem, 1024f, precision, MemorySuffixes, addSuffix);
+
+
+        public static string[] ClampArray(this string[] source) => source.Where(x => x != null).ToArray();
     }
 }

@@ -14,7 +14,7 @@ namespace Crypto.IO
         public int Block = -1;
 
         public ulong StartNonce = 0;
-        public ulong ExSizeBytes = 0;
+        public int ExSizeBytes = 0;
 
         public string Algo = "ethash";
     }

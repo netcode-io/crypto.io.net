@@ -140,7 +140,7 @@ namespace Crypto.IO
                 var newEpoch = _currentEpoch == -1;
                 // In EthereumStratum/2.0.0 epoch number is set in session
                 if (!newEpoch)
-                    newEpoch = c.Connection.StratumMode() == 3
+                    newEpoch = c.Connection.GetStratumMode() == StratumVersion.EthereumStratum2
                         ? wp.Epoch != _currentWp.Epoch
                         : wp.Seed != _currentWp.Seed;
                 var newDiff = wp.Boundary != _currentWp.Boundary;
@@ -343,11 +343,11 @@ namespace Crypto.IO
                 if (_client != null)
                     _client = null;
                 var connection = connections[_activeConnectionIdx];
-                switch (connection.Family())
+                switch (connection.GetStratumFamily())
                 {
-                    //case UriFamily.GETWORK: _client = new EthGetworkClient(_options.NoWorkTimeout, _options.GetWorkPollInterval); break;
-                    //case UriFamily.STRATUM: _client = new EthStratumClient(_options.NoWorkTimeout, _options.NoResponseTimeout); break;
-                    //case UriFamily.SIMULATION: _client = new SimulateClient(_options.BenchmarkBlock); break;
+                    case StratumFamily.GetWork: _client = new EthGetworkClient(_options.NoWorkTimeout, _options.GetWorkPollInterval); break;
+                    case StratumFamily.Stratum: _client = new EthStratumClient(_options.NoWorkTimeout, _options.NoResponseTimeout); break;
+                    case StratumFamily.Simulation: _client = new SimulateClient(_options.BenchmarkBlock); break;
                 }
                 if (_client != null)
                     SetClientHandlers();
