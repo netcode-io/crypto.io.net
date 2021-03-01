@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Security;
 using System.Net.Sockets;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,58 +14,13 @@ using System.Threading.Tasks;
 // https://stackoverflow.com/questions/8375013/how-to-use-ssl-in-tcpclient-class
 namespace Crypto.IO
 {
-    public class EthStratumClient : PoolClient
+    class StratumTcpClient : TcpClient
     {
-        const string ProjectNameWithVersion = "MyMiner 1.0";
-
-        int _disconnecting = 0; //: atomic<bool>
-        int _connecting = 0; //: atomic<bool>
-        bool _authPending = false; //: atomic<bool>
-
-        // seconds to trigger a work_timeout (overwritten in constructor)
-        int _workTimeout;
-
-        // seconds timeout for responses and connection (overwritten in constructor)
-        int _responseTimeout;
-
-        // default interval for workloop timer (milliseconds)
-        int _workloopInterval = 1000;
-
-        WorkPackage _current;
-        DateTime _currentTimestamp;
-
-        TcpClient _socket = null;
-        string _message;  // The internal message string buffer
-        bool _newJobProcessed = false;
-
-        Stream _stream;
-        Timer _workloopTimer;
-
-        int _responsePleasCount = 0; //: atomic
-        DateTime _responsePleaOlder; //: atomic
-        Queue<DateTime> _responsePleaTimes = new Queue<DateTime>(64);
-
-        int _txPending = 0; //: atomic
-        Queue<string> _txQueue = new Queue<string>(64);
-
-        Queue<IPEndPoint> _endpoints;
-
-        int _solutionSubmittedMaxId;  // maximum json id we used to send a solution
-        IFarm _f;
-
-        public EthStratumClient(IFarm f, int workTimeout, int responseTimeout) : base()
+        public StratumTcpClient()
         {
-            _f = f;
-            _workTimeout = workTimeout;
-            _responseTimeout = responseTimeout;
-
-            // Initialize workloop_timer to infinite wait
-            _workloopTimer = new Timer(WorkloopTimer_Elapsed, null, Timeout.Infinite, Timeout.Infinite);
-            ClearResponsePleas();
-        }
-
-        public void InitSocket()
-        {
+            NoDelay = true;
+            ReceiveTimeout = 10000;
+            SendTimeout = 10000;
             //            // Prepare Socket
             //            var secLevel = _conn.StratumSecLevel();
             //            if (secLevel != StratumSecLevel.None)
@@ -147,12 +104,74 @@ namespace Crypto.IO
             //#endif
         }
 
+        public void SetOptions()
+        {
+            //_socket.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+            //_socket.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.NoDelay, true);
+            //_nonsecuresocket.set_option(boost::asio::socket_base::keep_alive(true));
+            //_nonsecuresocket.set_option(tcp::no_delay(true));
+        }
+    }
+
+    public class EthStratumClient : PoolClient
+    {
+        const string ProjectNameWithVersion = "MyMiner 1.0";
+
+        int _disconnecting = 0; //: atomic<bool>
+        int _connecting = 0; //: atomic<bool>
+        bool _authPending = false; //: atomic<bool>
+
+        // seconds to trigger a work_timeout (overwritten in constructor)
+        int _workTimeout;
+
+        // seconds timeout for responses and connection (overwritten in constructor)
+        int _responseTimeout;
+
+        // default interval for workloop timer (milliseconds)
+        int _workloopInterval = 1000;
+
+        WorkPackage _current;
+        DateTime _currentTimestamp;
+
+        StratumTcpClient _socket = null;
+        string _message;  // The internal message string buffer
+        bool _newJobProcessed = false;
+
+        Stream _stream;
+        StreamReader _recvBuf;
+        StreamWriter _sendBuf;
+        Timer _workloopTimer;
+
+        int _responsePleasCount = 0; //: atomic
+        DateTime _responsePleaOlder; //: atomic
+        Queue<DateTime> _responsePleaTimes = new Queue<DateTime>(64);
+
+        int _txPending = 0; //: atomic
+        Queue<string> _txQueue = new Queue<string>(64);
+
+        Queue<IPEndPoint> _endpoints;
+
+        int _solutionSubmittedMaxId;  // maximum json id we used to send a solution
+        IFarm _f;
+
+        public EthStratumClient(IFarm f, int workTimeout, int responseTimeout) : base()
+        {
+            _f = f;
+            _workTimeout = workTimeout;
+            _responseTimeout = responseTimeout;
+
+            // Initialize workloop_timer to infinite wait
+            _workloopTimer = new Timer(WorkloopTimer_Elapsed, null, Timeout.Infinite, Timeout.Infinite);
+            ClearResponsePleas();
+        }
+
+
         public override async Task ConnectAsync()
         {
             // Prevent unnecessary and potentially dangerous recursion
             if (_connecting != 0)
                 return;
-            Console.WriteLine("EthStratumClient::connect() begin");
+            Console.WriteLine($"{nameof(EthStratumClient)}::{nameof(ConnectAsync)}() begin");
 
             // Start timing operations
             //_workloopTimer.Change(_workloopInterval, Timeout.Infinite);
@@ -162,7 +181,7 @@ namespace Crypto.IO
 
             // Initializes socket and eventually secure stream
             if (_socket == null)
-                InitSocket();
+                _socket = new StratumTcpClient();
 
             // Initialize a new queue of end points
             _endpoints = new Queue<IPEndPoint>();
@@ -185,13 +204,14 @@ namespace Crypto.IO
 
                     // We "simulate" a disconnect, to ensure a fully shutdown state
                     DisconnectFinalize();
+                    Console.WriteLine($"{nameof(EthStratumClient)}::{nameof(ConnectAsync)}() end1");
                     return;
                 }
             // No need to use the resolver if host is already an IP address
             else _endpoints.Enqueue(new IPEndPoint(IPAddress.Parse(_conn.Host), _conn.Port));
 
-            await StartConnectAsync();
-            Console.WriteLine("EthStratumClient::connect() end");
+            await StartConnect();
+            Console.WriteLine($"{nameof(EthStratumClient)}::{nameof(ConnectAsync)}() end");
         }
 
         public override Task DisconnectAsync()
@@ -262,7 +282,7 @@ namespace Crypto.IO
                     if (_conn.GetStratumMode() > 0)
                     {
                         _conn.SetStratumMode(_conn.GetStratumMode() - 1);
-                        Task.Run(() => StartConnect());
+                        Task.Run(StartConnect);
                         return;
                     }
                     // There are no more stratum modes to test. Mark connection as unrecoverable and trash it
@@ -281,185 +301,65 @@ namespace Crypto.IO
             _onDisconnected?.Invoke(_f, this);
         }
 
-        //void ResolveHandler(IAsyncResult ar)
-        //{
-        //    try
-        //    {
-        //        var result = Dns.EndGetHostAddresses(ar);
-        //        foreach (var dns in result)
-        //            _endpoints.Enqueue(new IPEndPoint(dns, _conn.Port));
-
-        //        // Resolver has finished so invoke connection asynchronously
-        //        Task.Run(() => StartConnect());
-        //    }
-        //    catch (Exception ec)
-        //    {
-        //        Console.WriteLine($"Could not resolve host {_conn.Host}, {ec.Message}");
-
-        //        // Release locking flag and set connection status
-        //        _connecting = 0; //: atomic
-
-        //        // We "simulate" a disconnect, to ensure a fully shutdown state
-        //        DisconnectFinalize();
-        //        return;
-        //    }
-        //}
-
-        async Task StartConnectAsync()
+        async Task StartConnect()
         {
             if (_connecting != 0) //: atomic
                 return;
             _connecting = 1; //: atomic
+            Console.WriteLine($"{nameof(EthStratumClient)}::{nameof(StartConnect)}() begin");
 
-            if (_endpoints.Count != 0)
-            {
-                // Pick the first endpoint in list. Eventually endpoints get discarded on connection errors.
-                _endpoint = _endpoints.First();
-
-                // Re-init socket if we need to
-                if (_socket == null)
-                    InitSocket();
-
-#if DEBUG
-                //if (_logOptions & LOG_CONNECT)
-                Console.WriteLine($"Trying {_endpoint} ...");
-#endif
-
-                ClearResponsePleas();
-                _connecting = 1; //: atomic
-                EnqueueResponsePlea();
-                _solutionSubmittedMaxId = 0;
-
-                // Start connecting async
-                await _socket.ConnectAsync(_endpoint.Address, _endpoint.Port);
-            }
-            else
+            if (_endpoints.Count == 0)
             {
                 _connecting = 0; //: atomic
                 Console.WriteLine($"No more IP addresses to try for host: {_conn.Host}");
 
                 // We "simulate" a disconnect, to ensure a fully shutdown state
                 DisconnectFinalize();
-            }
-        }
-
-        void WorkloopTimer_Elapsed(object ec)
-        {
-            // On timer cancelled or nothing to check for then early exit
-            if (((string)ec == "operation_aborted") || _conn == null)
+                Console.WriteLine($"{nameof(EthStratumClient)}::{nameof(StartConnect)}() end1");
                 return;
-
-            // No msg from client (EthereumStratum/2.0.0)
-            if (_conn.GetStratumMode() == StratumVersion.EthereumStratum2 && _session != null)
-            {
-                // Send a message 5 seconds before expiration
-                var s = (DateTime.Now - _session.LastTxStamp).TotalSeconds;
-                if (s > _session.Timeout - 5)
-                    Send(new
-                    {
-                        id = 7U,
-                        method = "mining.noop"
-                    });
             }
 
-            if (_responsePleasCount != 0) //: atomic
-            {
-                var responseDelayMs = 0.0;
-                var responsePleaTime = _responsePleaOlder; //: atomic
+            // Pick the first endpoint in list. Eventually endpoints get discarded on connection errors.
+            _endpoint = _endpoints.First();
 
-                // Check responses while in connection/disconnection phase
-                if (IsPendingState)
-                {
-                    responseDelayMs = (DateTime.Now - responsePleaTime).TotalMilliseconds;
+            // Re-init socket if we need to
+            if (_socket == null)
+                _socket = new StratumTcpClient();
 
-                    if ((_responseTimeout * 1000) >= responseDelayMs)
-                    {
-                        if (_connecting != 0) //: atomic
-                        {
-                            // The socket is closed so that any outstanding asynchronous connection operations are cancelled.
-                            _socket.Dispose();
-                            return;
-                        }
+#if DEBUG
+            //if (_logOptions & LOG_CONNECT)
+            Console.WriteLine($"Trying {_endpoint} ...");
+#endif
 
-                        // This is set for SSL disconnection
-                        //if (_disconnecting != 0 && (_conn.StratumSecLevel() != StratumSecLevel.None))
-                        //    if (_securesocket->lowest_layer().is_open())
-                        //    {
-                        //        _securesocket->lowest_layer().close();
-                        //        return;
-                        //    }
-                    }
-                }
+            ClearResponsePleas();
+            _connecting = 1; //: atomic
+            EnqueueResponsePlea();
+            _solutionSubmittedMaxId = 0;
 
-                // Check responses while connected
-                if (IsConnected)
-                {
-                    responseDelayMs = (DateTime.Now - responsePleaTime).TotalMilliseconds;
-
-                    // Delay timeout to a request
-                    if (responseDelayMs >= (_responseTimeout * 1000))
-                    {
-                        if (!_conn.StratumModeConfirmed() && !_conn.IsUnrecoverable())
-                        {
-                            // Waiting for a response from pool to a login request. Async self send a fake error response.
-                            ClearResponsePleas();
-                            var emptyRequest = JsonDocument.Parse(@"{""id"" = 1, ""result"" = null, ""error"" = true}").RootElement;
-                            Task.Run(() => ProcessResponse(emptyRequest));
-                        }
-                        else
-                        {
-                            // Waiting for a response to solution submission
-                            Console.WriteLine($"No response received in {_responseTimeout} seconds.");
-                            _endpoints.Dequeue();
-                            ClearResponsePleas();
-                            Task.Run(() => DisconnectAsync());
-                        }
-                    }
-                    // No work timeout
-                    else if (_session != null && (DateTime.Now - _currentTimestamp).TotalSeconds > _workTimeout)
-                    {
-                        Console.WriteLine($"No new work received in {_workTimeout} seconds.");
-                        _endpoints.Dequeue();
-                        ClearResponsePleas();
-                        Task.Run(() => DisconnectAsync());
-                    }
-                }
-            }
-
-            // Resubmit timing operations
-            _workloopTimer.Change(_workloopInterval, Timeout.Infinite);
-        }
-
-        void ConnectHandler(IAsyncResult ar)
-        {
-            Console.WriteLine("EthStratumClient::connect_handler() begin");
-
-            // Set status completion
-            _connecting = 0; //: atomic
-
+            // Start connecting async
             try
             {
-                _socket.EndConnect(ar);
+                await _socket.ConnectAsync(_endpoint.Address, _endpoint.Port);
+
+                // Set status completion
+                _connecting = 0; //: atomic
             }
-            catch (Exception ec)
+            catch (SocketException ec)
             {
                 // Timeout has run before or we got error
-                if (!_socket.Connected)
+                if (ec.SocketErrorCode == SocketError.TimedOut || !_socket.Connected)
                 {
-                    Console.WriteLine($"Error {_endpoint} [ {(ec.Message != null ? ec.Message : "Timeout")} ]");
+                    Console.WriteLine($"Error {_endpoint} [ {(ec.SocketErrorCode != SocketError.TimedOut ? ec.Message : "Timeout")} ]");
 
                     // We need to close the socket used in the previous connection attempt before starting a new one.
-                    // In case of error, in fact, boost does not close the socket
-                    // If socket is not opened it means we got timed out
                     if (_socket.Connected)
                         _socket.Dispose();
 
-                    // Discard this endpoint and try the next available.
-                    // Eventually is start_connect which will check for an empty list.
+                    // Discard this endpoint and try the next available. Eventually is start_connect which will check for an empty list.
                     _endpoints.Dequeue();
-                    Task.Run(() => StartConnect());
+                    Task.Run(StartConnect);
 
-                    Console.WriteLine("EthStratumClient::connect_handler() end1");
+                    Console.WriteLine($"{nameof(EthStratumClient)}::{nameof(StartConnect)}() end1");
                     return;
                 }
             }
@@ -473,18 +373,14 @@ namespace Crypto.IO
             // Clear txqueue
             _txQueue.Clear();
 
-
-
 #if DEBUG
             //if (_logOptions & LOG_CONNECT)
             Console.WriteLine($"Socket connected to {ActiveEndPoint}");
 #endif
 
+            _socket.SetOptions();
             if (_conn.GetStratumSecLevel() != StratumSecLevel.None)
             {
-                _socket.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
-                _socket.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.NoDelay, true);
-
                 //_securesocket->handshake(boost::asio::ssl::stream_base::client, hec);
                 //_secureSocket.AuthenticateAsClient()
                 var hec = (int?)null;
@@ -519,19 +415,17 @@ If you do the latter please be advised you might expose yourself to the risk of 
                     // This is a fatal error
                     // No need to try other IPs as the certificate is based on host-name not ip address. Trying other IPs would end up with the very same error.
                     _conn.MarkUnrecoverable();
-                    Task.Run(() => DisconnectAsync());
-                    Console.WriteLine("EthStratumClient::connect_handler() end2");
+                    Task.Run(DisconnectAsync);
+                    Console.WriteLine($"{nameof(EthStratumClient)}::{nameof(StartConnect)}() end2");
                     return;
                 }
             }
             else
-            {
-                //_nonsecuresocket.set_option(boost::asio::socket_base::keep_alive(true));
-                //_nonsecuresocket.set_option(tcp::no_delay(true));
-            }
+                _stream = _socket.GetStream();
+            _recvBuf = new StreamReader(_stream);
+            _sendBuf = new StreamWriter(_stream);
 
             // Clean buffer from any previous stale data
-            //_sendBuffer.consume(4096);
             ClearResponsePleas();
 
             /*
@@ -605,7 +499,7 @@ If you do the latter please be advised you might expose yourself to the risk of 
             }
 
             // Begin receive data
-            RecvSocketData();
+            Task.Run(RecvSocketData);
 
             /*
             Send first message
@@ -617,7 +511,94 @@ If you do the latter please be advised you might expose yourself to the risk of 
             EnqueueResponsePlea();
             Send(req);
 
-            Console.WriteLine("EthStratumClient::connect_handler() end");
+            Console.WriteLine($"{nameof(EthStratumClient)}::{nameof(StartConnect)}() end");
+        }
+
+        void WorkloopTimer_Elapsed(object ec)
+        {
+            // On timer cancelled or nothing to check for then early exit
+            if (((string)ec == "operation_aborted") || _conn == null)
+                return;
+
+            // No msg from client (EthereumStratum/2.0.0)
+            if (_conn.GetStratumMode() == StratumVersion.EthereumStratum2 && _session != null)
+            {
+                // Send a message 5 seconds before expiration
+                var s = (DateTime.Now - _session.LastTxStamp).TotalSeconds;
+                if (s > _session.Timeout - 5)
+                    Send(new
+                    {
+                        id = 7U,
+                        method = "mining.noop"
+                    });
+            }
+
+            if (_responsePleasCount != 0) //: atomic
+            {
+                var responseDelayMs = 0.0;
+                var responsePleaTime = _responsePleaOlder; //: atomic
+
+                // Check responses while in connection/disconnection phase
+                if (IsPendingState)
+                {
+                    responseDelayMs = (DateTime.Now - responsePleaTime).TotalMilliseconds;
+
+                    if ((_responseTimeout * 1000) >= responseDelayMs)
+                    {
+                        if (_connecting != 0) //: atomic
+                        {
+                            // The socket is closed so that any outstanding asynchronous connection operations are cancelled.
+                            _socket.Dispose();
+                            return;
+                        }
+
+                        // This is set for SSL disconnection
+                        //if (_disconnecting != 0 && (_conn.StratumSecLevel() != StratumSecLevel.None))
+                        //    if (_securesocket->lowest_layer().is_open())
+                        //    {
+                        //        _securesocket->lowest_layer().close();
+                        //        return;
+                        //    }
+                    }
+                }
+
+                // Check responses while connected
+                if (IsConnected)
+                {
+                    responseDelayMs = (DateTime.Now - responsePleaTime).TotalMilliseconds;
+
+                    // Delay timeout to a request
+                    if (responseDelayMs >= (_responseTimeout * 1000))
+                    {
+                        if (!_conn.StratumModeConfirmed() && !_conn.IsUnrecoverable())
+                        {
+                            // Waiting for a response from pool to a login request. Async self send a fake error response.
+                            ClearResponsePleas();
+                            var emptyRequest = JsonDocument.Parse(@"{""id"" = 1, ""result"" = null, ""error"" = true}").RootElement;
+                            Task.Run(() => ProcessResponse(emptyRequest));
+                        }
+                        else
+                        {
+                            // Waiting for a response to solution submission
+                            Console.WriteLine($"No response received in {_responseTimeout} seconds.");
+                            _endpoints.Dequeue();
+                            ClearResponsePleas();
+                            Task.Run(DisconnectAsync);
+                        }
+                    }
+                    // No work timeout
+                    else if (_session != null && (DateTime.Now - _currentTimestamp).TotalSeconds > _workTimeout)
+                    {
+                        Console.WriteLine($"No new work received in {_workTimeout} seconds.");
+                        _endpoints.Dequeue();
+                        ClearResponsePleas();
+                        Task.Run(DisconnectAsync);
+                    }
+                }
+            }
+
+            // Resubmit timing operations
+            _workloopTimer.Change(_workloopInterval, Timeout.Infinite);
         }
 
         void StartSession()
@@ -1493,6 +1474,7 @@ If you do the latter please be advised you might expose yourself to the risk of 
             //        }
             //    }
         }
+
         public override void SubmitHashrate(ulong rate, string id)
         {
             if (!IsConnected)
@@ -1604,122 +1586,100 @@ If you do the latter please be advised you might expose yourself to the risk of 
         }
 
 
-        void RecvSocketData()
+        async Task RecvSocketData()
         {
-            if (_conn.GetStratumSecLevel() != StratumSecLevel.None)
+            while (IsConnected)
             {
-                //async_read(*m_securesocket, m_recvBuffer, boost::asio::transfer_at_least(1),
-                //    m_io_strand.wrap(boost::bind(&EthStratumClient::onRecvSocketDataCompleted, this,
-                //        boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred)));
-            }
-            else
-            {
-                //async_read(*m_nonsecuresocket, m_recvBuffer, boost::asio::transfer_at_least(1),
-                //    m_io_strand.wrap(boost::bind(&EthStratumClient::onRecvSocketDataCompleted, this,
-                //        boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred)));
-            }
-        }
+                //try
+                //{
+                //    var buffer = new byte[_socket.ReceiveBufferSize];
+                //    var bytes = _stream.Read(buffer, 0, buffer.Length);
+                //}
+                //catch (Exception ec)
+                //{
+                //    if (IsConnected)
+                //    {
+                //        if (_authPending != false) //: atomic
+                //        {
+                //            Console.WriteLine("Error while waiting for authorization from pool");
+                //            Console.WriteLine("Double check your pool credentials.");
+                //            _conn.MarkUnrecoverable();
+                //        }
+                //        //if ((ex.category() == boost::asio::error::get_ssl_category()) && (ERR_GET_REASON(ec.value()) == SSL_RECEIVED_SHUTDOWN))
+                //        //    Console.WriteLine($"SSL Stream remotely closed by {_conn.Host}");
+                //        //else if (ex == boost::asio::error::eof)
+                //        //    Console.WriteLine($"Connection remotely closed by {_conn.Host}");
+                //        //else
+                //        Console.WriteLine($"Socket read failed: {ec.Message}");
+                //        Task.Run(DisconnectAsync);
+                //    }
+                //    return;
+                //}
 
-        void OnRecvSocketDataCompleted(Exception ec)
-        {
-            if (ec != null)
-            {
-                if (IsConnected)
+                // Due to the nature of io_service's queue and the implementation of the loop this event may trigger
+                // late after clean disconnection. Check status of connection before triggering all stack of calls
+
+                // DO NOT DO THIS !!!!!
+                // std::istream is(&m_recvBuffer);
+                // std::string message;
+                // getline(is, message)
+                /*
+                There are three reasons :
+                1 - Previous async_read_until calls this handler (aside from error codes)
+                    with the number of bytes in the buffer's get area up to and including
+                    the delimiter. So we know where to split the line
+                2 - Boost's documentation clearly states that after a succesfull
+                    async_read_until operation the stream buffer MAY contain additional
+                    data which HAVE to be left in the buffer for subsequent read operations.
+                    If another delimiter exists in the buffer then it will get caught
+                    by the next async_read_until()
+                3 - std::istream is(&m_recvBuffer) will CONSUME ALL data in the buffer
+                    thus invalidating the previous point 2
+                */
+
+                // Extract received message and free the buffer
+                //std::string rx_message(boost::asio::buffer_cast<const char*> (m_recvBuffer.data()), bytes_transferred);
+                //m_recvBuffer.consume(bytes_transferred);
+                //m_message.append(rx_message);
+
+                // Process each line in the transmission
+                // NOTE : as multiple jobs may come in with a single transmission only the last will be dispatched
+                _newJobProcessed = false;
+                string line = _recvBuf.ReadLine().Trim();
+                while (line != null)
                 {
-                    if (_authPending != false) //: atomic
+                    // Out received message only for debug purpouses
+                    //if (_logOptions & LOG_JSON)
+                    Console.WriteLine($" << {line}");
+
+                    // Test validity of chunk and process
+                    try
                     {
-                        Console.WriteLine("Error while waiting for authorization from pool");
-                        Console.WriteLine("Double check your pool credentials.");
-                        _conn.MarkUnrecoverable();
-                    }
-
-                    //if ((ex.category() == boost::asio::error::get_ssl_category()) && (ERR_GET_REASON(ec.value()) == SSL_RECEIVED_SHUTDOWN))
-                    //    Console.WriteLine($"SSL Stream remotely closed by {_conn.Host}");
-                    //else if (ex == boost::asio::error::eof)
-                    //    Console.WriteLine($"Connection remotely closed by {_conn.Host}");
-                    //else
-                    Console.WriteLine($"Socket read failed: {ec.Message}");
-                    Task.Run(() => DisconnectAsync());
-                }
-                return;
-            }
-
-            // Due to the nature of io_service's queue and the implementation of the loop this event may trigger
-            // late after clean disconnection. Check status of connection before triggering all stack of calls
-
-            // DO NOT DO THIS !!!!!
-            // std::istream is(&m_recvBuffer);
-            // std::string message;
-            // getline(is, message)
-            /*
-            There are three reasons :
-            1 - Previous async_read_until calls this handler (aside from error codes)
-                with the number of bytes in the buffer's get area up to and including
-                the delimiter. So we know where to split the line
-            2 - Boost's documentation clearly states that after a succesfull
-                async_read_until operation the stream buffer MAY contain additional
-                data which HAVE to be left in the buffer for subsequent read operations.
-                If another delimiter exists in the buffer then it will get caught
-                by the next async_read_until()
-            3 - std::istream is(&m_recvBuffer) will CONSUME ALL data in the buffer
-                thus invalidating the previous point 2
-            */
-
-            // Extract received message and free the buffer
-            //std::string rx_message(boost::asio::buffer_cast<const char*> (m_recvBuffer.data()), bytes_transferred);
-            //m_recvBuffer.consume(bytes_transferred);
-            //m_message.append(rx_message);
-
-            // Process each line in the transmission
-            // NOTE : as multiple jobs may come in with a single transmission only the last will be dispatched
-            _newJobProcessed = false;
-            string line;
-            var offset = _message.IndexOf("\n");
-            while (offset != -1)
-            {
-                if (offset > 0)
-                {
-                    line = _message.Substring(0, offset).Trim();
-                    if (line.Length != 0)
-                    {
-                        // Out received message only for debug purpouses
-                        //if (_logOptions & LOG_JSON)
-                        Console.WriteLine($" << {line}");
-
-                        // Test validity of chunk and process
-                        try
+                        var msg = JsonDocument.Parse(line)?.RootElement;
+                        if (msg != null)
                         {
-                            var msg = JsonDocument.Parse(line)?.RootElement;
-                            if (msg != null)
+                            try
                             {
-                                try
-                                {
-                                    // Run in sync so no 2 different async reads may overlap
-                                    ProcessResponse(msg.Value);
-                                }
-                                catch (Exception ex2)
-                                {
-                                    Console.WriteLine($"Stratum got invalid Json message : {ex2.Message}");
-                                }
+                                // Run in sync so no 2 different async reads may overlap
+                                ProcessResponse(msg.Value);
+                            }
+                            catch (Exception ex2)
+                            {
+                                Console.WriteLine($"Stratum got invalid Json message : {ex2.Message}");
                             }
                         }
-                        catch (Exception ex3)
-                        {
-                            Console.WriteLine($"Stratum got invalid Json message : {ex3.Message}");
-                        }
                     }
+                    catch (Exception ex3)
+                    {
+                        Console.WriteLine($"Stratum got invalid Json message : {ex3.Message}");
+                    }
+
+                    line = _recvBuf.ReadLine().Trim();
                 }
 
-                _message.Remove(0, offset + 1);
-                offset = _message.IndexOf("\n");
+                // There is a new job - dispatch it
+                _onWorkReceived?.Invoke(_f, this, _current);
             }
-
-            // There is a new job - dispatch it
-            _onWorkReceived?.Invoke(_f, this, _current);
-
-            // Eventually keep reading from socket
-            if (IsConnected)
-                RecvSocketData();
         }
 
         void Send(object req)
@@ -1727,65 +1687,51 @@ If you do the latter please be advised you might expose yourself to the risk of 
             var line = req is string z ? z : JsonSerializer.Serialize(req);
             _txQueue.Enqueue(line);
             if (Interlocked.CompareExchange(ref _txPending, 0, 1) != 1)
-                SendSocketData();
+                Task.Run(SendSocketData);
         }
 
         void SendSocketData()
         {
             if (!IsConnected || _txQueue.Count == 0)
             {
-                //_sendBuffer.consume(m_sendBuffer.capacity());
                 _txQueue.Clear();
                 _txPending = 0; //: atomic
                 return;
             }
 
-            //std::ostream os(&m_sendBuffer);
-            string line;
-            while ((line = _txQueue.Dequeue()) != null)
+            while (_txQueue.Count > 0)
             {
-                //os << *line << std::endl;
-                // Out received message only for debug purpouses
+                var line = _txQueue.Dequeue();
+
                 //if (_logOptions & LOG_JSON)
                 Console.WriteLine($" >> {line}");
-            }
 
-            //if (_conn.StratumSecLevel() != StratumSecLevel.NONE)
-            //{
-            //    async_write(*m_securesocket, m_sendBuffer,
-            //        m_io_strand.wrap(boost::bind(&EthStratumClient::onSendSocketDataCompleted, this,
-            //            boost::asio::placeholders::error)));
-            //}
-            //else
-            //{
-            //    async_write(*m_nonsecuresocket, m_sendBuffer,
-            //        m_io_strand.wrap(boost::bind(&EthStratumClient::onSendSocketDataCompleted, this,
-            //            boost::asio::placeholders::error)));
-            //}
-        }
-
-        void OnSendSocketDataCompleted(Exception ex)
-        {
-            if (ex != null)
-            {
-                //_sendBuffer.consume(_sendBuffer.capacity());
-                _txQueue.Clear();
-
-                _txPending = 0; //: atomic
-
-                //if (ex is IOException && SSL_R_PROTOCOL_IS_SHUTDOWN == ERR_GET_REASON(ec.value())))
-                //{
-                //    Console.WriteLine($"SSL Stream error : {ex.Message}");
-                //    Task.Run(() => Disconnect());
-                //}
-
-                if (IsConnected)
+                try
                 {
-                    Console.WriteLine($"Socket write failed : {ex.Message}");
-                    Task.Run(() => DisconnectAsync());
+                    _sendBuf.WriteLine(line);
                 }
-                return;
+                catch (Exception ex)
+                {
+                    //_sendBuffer.consume(_sendBuffer.capacity());
+                    _txQueue.Clear();
+
+                    _txPending = 0; //: atomic
+
+                    //if (ex is IOException && SSL_R_PROTOCOL_IS_SHUTDOWN == ERR_GET_REASON(ec.value())))
+                    //{
+                    //    Console.WriteLine($"SSL Stream error : {ex.Message}");
+                    //    Task.Run(DisconnectAsync);
+                    //}
+
+                    if (IsConnected)
+                    {
+                        Console.WriteLine($"Socket write failed : {ex.Message}");
+                        Task.Run(DisconnectAsync);
+                    }
+                    return;
+                }
             }
+            _stream.Flush();
 
             // Register last transmission tstamp to prevent timeout in EthereumStratum/2.0.0
             if (_session != null && _conn.GetStratumMode() == StratumVersion.EthereumStratum2)
@@ -1796,11 +1742,11 @@ If you do the latter please be advised you might expose yourself to the risk of 
         }
 
 
-        void OnSSLShutdownCompleted(Exception ex)
-        {
-            ClearResponsePleas();
-            Task.Run(() => DisconnectFinalize());
-        }
+        //void OnSSLShutdownCompleted(Exception ex)
+        //{
+        //    ClearResponsePleas();
+        //    Task.Run(DisconnectFinalize);
+        //}
 
         void EnqueueResponsePlea()
         {
