@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace Crypto.IO
 {
@@ -11,10 +12,15 @@ namespace Crypto.IO
         float _hrAlpha = 0.45f;
         float _hrMax = 0.0f;
         float _hrMean = 0.0f;
+        IFarm _f;
 
-        public SimulateClient(int block) : base("sim") => _block = block;
+        public SimulateClient(IFarm f, int block) : base("sim")
+        {
+            _f = f;
+            _block = block;
+        }
 
-        public override void Connect()
+        public override Task ConnectAsync()
         {
             // Initialize new session
             _connected = true; //: atomic
@@ -23,19 +29,21 @@ namespace Crypto.IO
                 Subscribed = true, //: atomic
                 Authorized = true,  //: atomic
             };
-            _onConnected?.Invoke(Farm.F, this);
+            _onConnected?.Invoke(_f, this);
             // No need to worry about starting again.
             // Worker class prevents that
             StartWorking();
+            return Task.CompletedTask;
         }
 
-        public override void Disconnect()
+        public override Task DisconnectAsync()
         {
             Console.WriteLine($"Simulation results : {Ansi.WhiteBold}Max {_hrMax.ToFormattedHashes(6)} Mean {_hrMean.ToFormattedHashes(6)}{Ansi.Reset}");
             _conn.AddDuration(_session.Duration);
             _session = null;
             _connected = false; //: atomic
-            _onDisconnected?.Invoke(Farm.F, this);
+            _onDisconnected?.Invoke(_f, this);
+            return Task.CompletedTask;
         }
 
         public override bool IsPendingState => false;
@@ -51,9 +59,9 @@ namespace Crypto.IO
             var accepted = EthashAux.Eval(solution.Work.Epoch, solution.Work.Header, solution.Nonce).value <= solution.Work.Boundary;
             var responseDelayMs = (DateTime.Now - submitStart).TotalMilliseconds;
             if (accepted)
-                _onSolutionAccepted?.Invoke(Farm.F, this, responseDelayMs, solution.MIdx, false);
+                _onSolutionAccepted?.Invoke(_f, this, responseDelayMs, solution.MIdx, false);
             else
-                _onSolutionRejected?.Invoke(Farm.F, this, responseDelayMs, solution.MIdx);
+                _onSolutionRejected?.Invoke(_f, this, responseDelayMs, solution.MIdx);
         }
 
         // Handles all logic here
@@ -63,7 +71,7 @@ namespace Crypto.IO
             _startTime = DateTime.Now;
 
             // apply exponential sliding average
-            _onWorkReceived(Farm.F, this, new WorkPackage
+            _onWorkReceived(_f, this, new WorkPackage
             {
                 Seed = H256.Random(),  // We don't actually need a real seed as the epoch is calculated upon block number (see poolmanager)
                 Header = H256.Random(),
@@ -73,7 +81,7 @@ namespace Crypto.IO
 
             while (_session != null)
             {
-                var hr = Farm.F.HashRate;
+                var hr = _f.HashRate;
                 _hrMax = Math.Max(_hrMax, hr);
                 _hrMean = _hrAlpha * _hrMean + (1.0f - _hrAlpha) * hr;
                 Thread.Sleep(200);

@@ -17,7 +17,7 @@ namespace Crypto.IO
     /// <summary>
     /// Farm
     /// </summary>
-    public class Farm : FarmFace
+    public class Farm : FarmFace, IFarm
     {
         bool _paused = false; //: atomic
 

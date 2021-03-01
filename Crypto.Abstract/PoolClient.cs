@@ -1,6 +1,6 @@
 ﻿using System;
 using System.Net;
-using System.Net.Sockets;
+using System.Threading.Tasks;
 
 namespace Crypto.IO
 {
@@ -10,11 +10,11 @@ namespace Crypto.IO
         protected bool _connected = false; //: atomic // This is related to socket ! Not session
         protected IPEndPoint _endpoint;
         protected Uri _conn = null;
-        protected Action<Farm, PoolClient, double, int, bool> _onSolutionAccepted;
-        protected Action<Farm, PoolClient, double, int> _onSolutionRejected;
-        protected Action<Farm, PoolClient> _onDisconnected;
-        protected Action<Farm, PoolClient> _onConnected;
-        protected Action<Farm, PoolClient, WorkPackage> _onWorkReceived;
+        protected Action<IFarm, PoolClient, double, int, bool> _onSolutionAccepted;
+        protected Action<IFarm, PoolClient, double, int> _onSolutionRejected;
+        protected Action<IFarm, PoolClient> _onDisconnected;
+        protected Action<IFarm, PoolClient> _onConnected;
+        protected Action<IFarm, PoolClient, WorkPackage> _onWorkReceived;
 
         /// <summary>
         /// Session
@@ -80,8 +80,8 @@ namespace Crypto.IO
         /// </summary>
         public void UnsetConnection() => _conn = null;
 
-        public abstract void Connect();
-        public abstract void Disconnect();
+        public abstract Task ConnectAsync();
+        public abstract Task DisconnectAsync();
         public abstract void SubmitHashrate(ulong rate, string id);
         public abstract void SubmitSolution(Solution solution);
         public virtual bool IsConnected => _connected; //: atomic
@@ -91,11 +91,11 @@ namespace Crypto.IO
 
         public virtual string ActiveEndPoint => _connected ? $" [{_endpoint}]" : string.Empty; //: atomic
 
-        public void OnSolutionAccepted(Action<Farm, PoolClient, double, int, bool> handler) => _onSolutionAccepted = handler;
-        public void OnSolutionRejected(Action<Farm, PoolClient, double, int> handler) => _onSolutionRejected = handler;
-        public void OnDisconnected(Action<Farm, PoolClient> handler) => _onDisconnected = handler;
-        public void OnConnected(Action<Farm, PoolClient> handler) => _onConnected = handler;
-        public void OnWorkReceived(Action<Farm, PoolClient, WorkPackage> handler) => _onWorkReceived = handler;
+        public void OnSolutionAccepted(Action<IFarm, PoolClient, double, int, bool> handler) => _onSolutionAccepted = handler;
+        public void OnSolutionRejected(Action<IFarm, PoolClient, double, int> handler) => _onSolutionRejected = handler;
+        public void OnDisconnected(Action<IFarm, PoolClient> handler) => _onDisconnected = handler;
+        public void OnConnected(Action<IFarm, PoolClient> handler) => _onConnected = handler;
+        public void OnWorkReceived(Action<IFarm, PoolClient, WorkPackage> handler) => _onWorkReceived = handler;
 
         protected override void WorkLoop() { }
     }

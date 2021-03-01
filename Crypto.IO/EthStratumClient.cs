@@ -3,12 +3,13 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
-using System.Net.Security;
 using System.Net.Sockets;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
+// https://darchuk.net/2019/01/04/c-setting-socket-keep-alive/
+// https://stackoverflow.com/questions/8375013/how-to-use-ssl-in-tcpclient-class
 namespace Crypto.IO
 {
     public class EthStratumClient : PoolClient
@@ -48,14 +49,16 @@ namespace Crypto.IO
         Queue<IPEndPoint> _endpoints;
 
         int _solutionSubmittedMaxId;  // maximum json id we used to send a solution
+        IFarm _f;
 
-        public EthStratumClient(int workTimeout, int responseTimeout) : base()
+        public EthStratumClient(IFarm f, int workTimeout, int responseTimeout) : base()
         {
+            _f = f;
             _workTimeout = workTimeout;
             _responseTimeout = responseTimeout;
 
             // Initialize workloop_timer to infinite wait
-            _workloopTimer = new Timer(WorkloopTimer_Elapsed, null, -1, -1);
+            _workloopTimer = new Timer(WorkloopTimer_Elapsed, null, Timeout.Infinite, Timeout.Infinite);
             ClearResponsePleas();
         }
 
@@ -144,7 +147,7 @@ namespace Crypto.IO
             //#endif
         }
 
-        public override void Connect()
+        public override async Task ConnectAsync()
         {
             // Prevent unnecessary and potentially dangerous recursion
             if (_connecting != 0)
@@ -152,7 +155,7 @@ namespace Crypto.IO
             Console.WriteLine("EthStratumClient::connect() begin");
 
             // Start timing operations
-            _workloopTimer.Change(new TimeSpan(0, 0, 0, 0, _workloopInterval), new TimeSpan(0, 0, -1));
+            //_workloopTimer.Change(_workloopInterval, Timeout.Infinite);
 
             // Reset status flags
             _authPending = false; //: atomic
@@ -165,23 +168,37 @@ namespace Crypto.IO
             _endpoints = new Queue<IPEndPoint>();
             _endpoint = null;
 
-            // Begin resolve all ips associated to hostname calling the resolver each time is useful as most load balancers will give Ips in different order
+            // Resolve all ips associated to hostname calling the resolver each time is useful as most load balancers will give Ips in different order
             if (_conn.HostNameType == UriHostNameType.Dns || _conn.HostNameType == UriHostNameType.Basic)
-                Dns.BeginGetHostEntry(_conn.DnsSafeHost, ResolveHandler, null);
+                try
+                {
+                    var result = await Dns.GetHostAddressesAsync(_conn.DnsSafeHost);
+                    foreach (var dns in result)
+                        _endpoints.Enqueue(new IPEndPoint(dns, _conn.Port));
+                }
+                catch (Exception ec)
+                {
+                    Console.WriteLine($"Could not resolve host {_conn.Host}, {ec.Message}");
+
+                    // Release locking flag and set connection status
+                    _connecting = 0; //: atomic
+
+                    // We "simulate" a disconnect, to ensure a fully shutdown state
+                    DisconnectFinalize();
+                    return;
+                }
             // No need to use the resolver if host is already an IP address
-            else
-            {
-                _endpoints.Enqueue(new IPEndPoint(IPAddress.Parse(_conn.Host), _conn.Port));
-                Task.Run(() => StartConnect());
-            }
+            else _endpoints.Enqueue(new IPEndPoint(IPAddress.Parse(_conn.Host), _conn.Port));
+
+            await StartConnectAsync();
             Console.WriteLine("EthStratumClient::connect() end");
         }
 
-        public override void Disconnect()
+        public override Task DisconnectAsync()
         {
             // Prevent unnecessary and potentially dangerous recursion
             if (Interlocked.CompareExchange(ref _disconnecting, 0, 1) != 1)
-                return;
+                return Task.CompletedTask;
             _connected = false; //: atomic
 
             Console.WriteLine("EthStratumClient::disconnect() begin");
@@ -213,6 +230,7 @@ namespace Crypto.IO
 
             DisconnectFinalize();
             Console.WriteLine("EthStratumClient::disconnect() end");
+            return Task.CompletedTask;
         }
 
         void DisconnectFinalize()
@@ -260,36 +278,34 @@ namespace Crypto.IO
             _workloopTimer.Change(-1, -1);
 
             // Trigger handlers
-            _onDisconnected?.Invoke(Farm.F, this);
+            _onDisconnected?.Invoke(_f, this);
         }
 
-        void ResolveHandler(object ec)
-        {
-            if (ec == null)
-            {
-                //while (i != tcp::resolver::iterator())
-                //{
-                //    m_endpoints.push(i->endpoint());
-                //    i++;
-                //}
-                //_resolver.cancel();
+        //void ResolveHandler(IAsyncResult ar)
+        //{
+        //    try
+        //    {
+        //        var result = Dns.EndGetHostAddresses(ar);
+        //        foreach (var dns in result)
+        //            _endpoints.Enqueue(new IPEndPoint(dns, _conn.Port));
 
-                // Resolver has finished so invoke connection asynchronously
-                Task.Run(() => StartConnect());
-            }
-            else
-            {
-                Console.WriteLine($"Could not resolve host {_conn.Host}, "); // << ec.message();
+        //        // Resolver has finished so invoke connection asynchronously
+        //        Task.Run(() => StartConnect());
+        //    }
+        //    catch (Exception ec)
+        //    {
+        //        Console.WriteLine($"Could not resolve host {_conn.Host}, {ec.Message}");
 
-                // Release locking flag and set connection status
-                _connecting = 0; //: atomic
+        //        // Release locking flag and set connection status
+        //        _connecting = 0; //: atomic
 
-                // We "simulate" a disconnect, to ensure a fully shutdown state
-                DisconnectFinalize();
-            }
-        }
+        //        // We "simulate" a disconnect, to ensure a fully shutdown state
+        //        DisconnectFinalize();
+        //        return;
+        //    }
+        //}
 
-        void StartConnect()
+        async Task StartConnectAsync()
         {
             if (_connecting != 0) //: atomic
                 return;
@@ -297,8 +313,7 @@ namespace Crypto.IO
 
             if (_endpoints.Count != 0)
             {
-                // Pick the first endpoint in list.
-                // Eventually endpoints get discarded on connection errors
+                // Pick the first endpoint in list. Eventually endpoints get discarded on connection errors.
                 _endpoint = _endpoints.First();
 
                 // Re-init socket if we need to
@@ -316,7 +331,7 @@ namespace Crypto.IO
                 _solutionSubmittedMaxId = 0;
 
                 // Start connecting async
-                _socket.BeginConnect(_endpoint.Address, _endpoint.Port, ConnectHandler, null);
+                await _socket.ConnectAsync(_endpoint.Address, _endpoint.Port);
             }
             else
             {
@@ -397,7 +412,7 @@ namespace Crypto.IO
                             Console.WriteLine($"No response received in {_responseTimeout} seconds.");
                             _endpoints.Dequeue();
                             ClearResponsePleas();
-                            Task.Run(() => Disconnect());
+                            Task.Run(() => DisconnectAsync());
                         }
                     }
                     // No work timeout
@@ -406,50 +421,59 @@ namespace Crypto.IO
                         Console.WriteLine($"No new work received in {_workTimeout} seconds.");
                         _endpoints.Dequeue();
                         ClearResponsePleas();
-                        Task.Run(() => Disconnect());
+                        Task.Run(() => DisconnectAsync());
                     }
                 }
             }
 
             // Resubmit timing operations
-            _workloopTimer.Change(new TimeSpan(0, 0, 0, 0, _workloopInterval), new TimeSpan(0, 0, -1));
+            _workloopTimer.Change(_workloopInterval, Timeout.Infinite);
         }
 
-        void ConnectHandler(object ec)
+        void ConnectHandler(IAsyncResult ar)
         {
             Console.WriteLine("EthStratumClient::connect_handler() begin");
 
             // Set status completion
             _connecting = 0; //: atomic
 
-            // Timeout has run before or we got error
-            if (ec != null || !_socket.Connected)
+            try
             {
-                Console.WriteLine($"Error {_endpoint} [ {(ec != null ? ec : "Timeout")} ]");
+                _socket.EndConnect(ar);
+            }
+            catch (Exception ec)
+            {
+                // Timeout has run before or we got error
+                if (!_socket.Connected)
+                {
+                    Console.WriteLine($"Error {_endpoint} [ {(ec.Message != null ? ec.Message : "Timeout")} ]");
 
-                // We need to close the socket used in the previous connection attempt before starting a new one.
-                // In case of error, in fact, boost does not close the socket
-                // If socket is not opened it means we got timed out
-                if (_socket.Connected)
-                    _socket.Dispose();
+                    // We need to close the socket used in the previous connection attempt before starting a new one.
+                    // In case of error, in fact, boost does not close the socket
+                    // If socket is not opened it means we got timed out
+                    if (_socket.Connected)
+                        _socket.Dispose();
 
-                // Discard this endpoint and try the next available.
-                // Eventually is start_connect which will check for an empty list.
-                _endpoints.Dequeue();
-                Task.Run(() => StartConnect());
+                    // Discard this endpoint and try the next available.
+                    // Eventually is start_connect which will check for an empty list.
+                    _endpoints.Dequeue();
+                    Task.Run(() => StartConnect());
 
-                Console.WriteLine("EthStratumClient::connect_handler() end1");
-                return;
+                    Console.WriteLine("EthStratumClient::connect_handler() end1");
+                    return;
+                }
             }
 
             // We got a socket connection established
-            //_conn.Responds(true);
+            _conn.Responds(true);
             _connected = true; //: atomic
 
             _message = null;
 
             // Clear txqueue
             _txQueue.Clear();
+
+
 
 #if DEBUG
             //if (_logOptions & LOG_CONNECT)
@@ -495,7 +519,7 @@ If you do the latter please be advised you might expose yourself to the risk of 
                     // This is a fatal error
                     // No need to try other IPs as the certificate is based on host-name not ip address. Trying other IPs would end up with the very same error.
                     _conn.MarkUnrecoverable();
-                    Task.Run(() => Disconnect());
+                    Task.Run(() => DisconnectAsync());
                     Console.WriteLine("EthStratumClient::connect_handler() end2");
                     return;
                 }
@@ -603,7 +627,7 @@ If you do the latter please be advised you might expose yourself to the risk of 
             _currentTimestamp = DateTime.Now;
 
             // Invoke higher level handlers
-            _onConnected?.Invoke(Farm.F, this);
+            _onConnected?.Invoke(_f, this);
         }
 
         string ProcessError()
@@ -1615,7 +1639,7 @@ If you do the latter please be advised you might expose yourself to the risk of 
                     //    Console.WriteLine($"Connection remotely closed by {_conn.Host}");
                     //else
                     Console.WriteLine($"Socket read failed: {ec.Message}");
-                    Task.Run(() => Disconnect());
+                    Task.Run(() => DisconnectAsync());
                 }
                 return;
             }
@@ -1691,7 +1715,7 @@ If you do the latter please be advised you might expose yourself to the risk of 
             }
 
             // There is a new job - dispatch it
-            _onWorkReceived?.Invoke(Farm.F, this, _current);
+            _onWorkReceived?.Invoke(_f, this, _current);
 
             // Eventually keep reading from socket
             if (IsConnected)
@@ -1758,7 +1782,7 @@ If you do the latter please be advised you might expose yourself to the risk of 
                 if (IsConnected)
                 {
                     Console.WriteLine($"Socket write failed : {ex.Message}");
-                    Task.Run(() => Disconnect());
+                    Task.Run(() => DisconnectAsync());
                 }
                 return;
             }

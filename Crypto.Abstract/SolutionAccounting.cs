@@ -1,4 +1,4 @@
-namespace Crypto.IO.Miner
+namespace Crypto.IO
 {
     /// <summary>
     /// SolutionAccounting

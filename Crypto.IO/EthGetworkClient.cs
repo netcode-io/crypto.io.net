@@ -6,6 +6,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace Crypto.IO
 {
@@ -39,18 +40,19 @@ namespace Crypto.IO
         DateTime _currentTstamp;
 
         int _solutionSubmittedMaxId;  // maximum json id we used to send a solution
+        IFarm _f;
 
-        public EthGetworkClient(int workTimeout, int farmRecheckPeriod) : base()
+        public EthGetworkClient(IFarm f, int workTimeout, int farmRecheckPeriod) : base()
         {
             _workTimeout = workTimeout;
             _farmRecheckPeriod = farmRecheckPeriod;
         }
 
-        public override void Connect()
+        public override Task ConnectAsync()
         {
             // Prevent unnecessary and potentially dangerous recursion
             if (Interlocked.CompareExchange(ref _connecting, 0, 1) != 1)
-                return;
+                return Task.CompletedTask;
 
             // Reset status flags
             _getworkTimer?.Dispose(); _getworkTimer = null;
@@ -67,9 +69,10 @@ namespace Crypto.IO
                 _endpoints.Enqueue(new IPEndPoint(IPAddress.Parse(_conn.Host), _conn.Port));
                 Send(_jsonGetWork);
             }
+            return Task.CompletedTask;
         }
 
-        public override void Disconnect()
+        public override Task DisconnectAsync()
         {
             // Release session
             _connected = false; //: atomic
@@ -84,7 +87,8 @@ namespace Crypto.IO
             _txQueue.Clear();
             _stream.Close();
 
-            _onDisconnected?.Invoke(Farm.F, this);
+            _onDisconnected?.Invoke(_f, this);
+            return Task.CompletedTask;
         }
 
         void BeginConnect()
@@ -100,7 +104,7 @@ namespace Crypto.IO
             else
             {
                 Console.WriteLine($"No more IP addresses to try for host: {_conn.Host}");
-                Disconnect();
+                DisconnectAsync();
             }
         }
 
@@ -119,7 +123,7 @@ namespace Crypto.IO
                         Authorized = true, //: atomic
                     };
                     _connecting = 0; //: atomic
-                    _onConnected?.Invoke(Farm.F, this);
+                    _onConnected?.Invoke(_f, this);
                     _currentTstamp = DateTime.Now;
                 }
 
@@ -310,7 +314,7 @@ Connection: close
             else
             {
                 Console.WriteLine($"Could not resolve host {_conn.Host}, "); // << ec.message();
-                Disconnect();
+                DisconnectAsync();
             }
         }
 
@@ -504,7 +508,7 @@ Connection: close
                 {
                     Console.WriteLine($"No new work received in {_workTimeout} seconds.");
                     _endpoints.Dequeue();
-                    Disconnect();
+                    DisconnectAsync();
                 }
                 else Send(_jsonGetWork);
             }

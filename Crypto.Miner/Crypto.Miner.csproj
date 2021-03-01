@@ -15,6 +15,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Crypto.Abstract\Crypto.Abstract.csproj" />
     <ProjectReference Include="..\Crypto.Hwmon\Crypto.Hwmon.csproj" />
+    <ProjectReference Include="..\Crypto.IO\Crypto.IO.csproj" />
   </ItemGroup>
 
 </Project>

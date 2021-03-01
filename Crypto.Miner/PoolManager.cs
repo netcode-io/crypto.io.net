@@ -186,7 +186,7 @@ namespace Crypto.IO
                 _stopping = 1; //: atomic
                 if (_client != null && _client.IsConnected)
                 {
-                    _client.Disconnect();
+                    _client.DisconnectAsync();
                     // Wait for async operations to complete
                     while (_running != 0) //: atomic
                         Thread.Sleep(500);
@@ -247,7 +247,7 @@ namespace Crypto.IO
                 Interlocked.Add(ref _connectionSwitches, 1);
                 _activeConnectionIdx = index;
                 _connectionAttempt = 0;
-                _client.Disconnect();
+                _client.DisconnectAsync();
             }
             // Release the flag immediately
             else _asyncPending = 0; //: atomic
@@ -345,9 +345,9 @@ namespace Crypto.IO
                 var connection = connections[_activeConnectionIdx];
                 switch (connection.GetStratumFamily())
                 {
-                    case StratumFamily.GetWork: _client = new EthGetworkClient(_options.NoWorkTimeout, _options.GetWorkPollInterval); break;
-                    case StratumFamily.Stratum: _client = new EthStratumClient(_options.NoWorkTimeout, _options.NoResponseTimeout); break;
-                    case StratumFamily.Simulation: _client = new SimulateClient(_options.BenchmarkBlock); break;
+                    case StratumFamily.GetWork: _client = new EthGetworkClient(Farm.F, _options.NoWorkTimeout, _options.GetWorkPollInterval); break;
+                    case StratumFamily.Stratum: _client = new EthStratumClient(Farm.F, _options.NoWorkTimeout, _options.NoResponseTimeout); break;
+                    case StratumFamily.Simulation: _client = new SimulateClient(Farm.F, _options.BenchmarkBlock); break;
                 }
                 if (_client != null)
                     SetClientHandlers();
@@ -365,7 +365,7 @@ namespace Crypto.IO
                     Console.WriteLine($"Next connection attempt in {_options.DelayBeforeRetry} seconds");
                     _reconnectTimer = new Timer(ReconnectTimer_Elapsed, null, new TimeSpan(0, 0, _options.DelayBeforeRetry), new TimeSpan(0, 0, -1));
                 }
-                else _client.Connect();
+                else _client.ConnectAsync();
             }
             else
             {
@@ -403,7 +403,7 @@ namespace Crypto.IO
                     _connectionAttempt = 0;
                     Interlocked.Add(ref _connectionSwitches, 1);
                     Console.WriteLine("Failover timeout reached, retrying connection to primary pool");
-                    _client.Disconnect();
+                    _client.DisconnectAsync();
                 }
         }
 
@@ -426,7 +426,7 @@ namespace Crypto.IO
                 return;
             if (_running != 0) //: atomic
                 if (_client != null && !_client.IsConnected)
-                    _client.Connect();
+                    _client.ConnectAsync();
         }
 
         public bool IsConnected => _client.IsConnected;
