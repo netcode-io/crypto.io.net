@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 
 namespace System
 {
@@ -39,11 +40,10 @@ namespace System
     /// </summary>
     public static class StratumExtensions
     {
+        static readonly ConditionalWeakTable<Uri, UriState> _uriStates = new ConditionalWeakTable<Uri, UriState>();
+
         static readonly Dictionary<string, (StratumFamily family, StratumSecLevel level, StratumVersion version)> _schemes = new Dictionary<string, (StratumFamily, StratumSecLevel, StratumVersion)> {
-            /*
-            This schemes are kept for backwards compatibility.
-            Ethminer do perform stratum autodetection
-            */
+            // Specific schemes
             {"stratum+tcp", (StratumFamily.Stratum, StratumSecLevel.None, StratumVersion.Stratum)},
             {"stratum1+tcp", (StratumFamily.Stratum, StratumSecLevel.None, StratumVersion.EthProxy)},
             {"stratum2+tcp", (StratumFamily.Stratum, StratumSecLevel.None, StratumVersion.EthereumStratum)},
@@ -62,19 +62,11 @@ namespace System
             {"stratum3+ssl", (StratumFamily.Stratum, StratumSecLevel.Tls12, StratumVersion.EthereumStratum2)},
             {"http", (StratumFamily.GetWork, StratumSecLevel.None, StratumVersion.Stratum)},
             {"getwork", (StratumFamily.GetWork, StratumSecLevel.None, StratumVersion.Stratum)},
-
-            /*
-            Any TCP scheme has, at the moment, only STRATUM protocol thus reiterating "stratum" word would be pleonastic
-            Version 999 means auto-detect stratum mode
-            */
+            // Auto-detect schemes
             {"stratum", (StratumFamily.Stratum, StratumSecLevel.None, StratumVersion.AutoDetect)},
             {"stratums", (StratumFamily.Stratum, StratumSecLevel.Tls, StratumVersion.AutoDetect)},
             {"stratumss", (StratumFamily.Stratum, StratumSecLevel.Tls12, StratumVersion.AutoDetect)},
-
-            /*
-            The following scheme is only meant for simulation operations
-            It's not meant to be used with -P arguments
-            */
+            // sumulation Scheme
             {"simulation", (StratumFamily.Simulation, StratumSecLevel.None, StratumVersion.AutoDetect)}
         };
 
@@ -87,19 +79,19 @@ namespace System
             public double TotalDuration;
         }
 
-        static UriState State(this Uri source, Action<UriState> action = null) => new UriState();
+        static UriState State(this Uri source, Action<UriState> action = null)
+        {
+            var state = _uriStates.GetOrCreateValue(source);
+            action?.Invoke(state);
+            return state;
+        }
 
-        public static void SetStratumMode(this Uri source, StratumVersion mode, bool confirmed) =>
-            State(source, s =>
-            {
-                s.StratumMode = mode;
-                s.StratumModeConfirmed = confirmed;
-            });
+        public static void SetStratumMode(this Uri source, StratumVersion mode, bool confirmed) => State(source, s => { s.StratumMode = mode; s.StratumModeConfirmed = confirmed; });
         public static void SetStratumMode(this Uri source, StratumVersion mode) => State(source).StratumMode = mode;
         public static StratumVersion GetStratumMode(this Uri source) => State(source).StratumMode;
         public static bool StratumModeConfirmed(this Uri source) => State(source).StratumModeConfirmed;
-        public static bool Responds(this Uri source) => State(source).Unrecoverable;
-        public static bool Responds(this Uri source, bool value) => State(source).Unrecoverable = value;
+        public static bool Responds(this Uri source) => State(source).Responds;
+        public static bool Responds(this Uri source, bool value) => State(source).Responds = value;
         public static bool IsUnrecoverable(this Uri source) => State(source).Unrecoverable;
         public static void MarkUnrecoverable(this Uri source) => State(source).Unrecoverable = true;
         public static StratumFamily GetStratumFamily(this Uri source) => _schemes[source.Scheme].family;

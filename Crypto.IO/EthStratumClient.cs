@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -21,95 +22,12 @@ namespace Crypto.IO
             NoDelay = true;
             ReceiveTimeout = 10000;
             SendTimeout = 10000;
-            //            // Prepare Socket
-            //            var secLevel = _conn.StratumSecLevel();
-            //            if (secLevel != StratumSecLevel.None)
-            //            {
-            //                boost::asio::ssl::context::method method = boost::asio::ssl::context::tls_client;
-            //                if (secLevel == StratumSecLevel.TLS12)
-            //                    method = boost::asio::ssl::context::tlsv12;
-
-            //                boost::asio::ssl::context ctx(method);
-            //                m_securesocket = std::make_shared<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>(
-            //                    m_io_service, ctx);
-            //                m_socket = &m_securesocket->next_layer();
-
-            //                if (getenv("SSL_NOVERIFY"))
-            //                {
-            //                    _secureSocket->set_verify_mode(boost::asio::ssl::verify_none);
-            //                }
-            //                else
-            //                {
-            //                    m_securesocket->set_verify_mode(boost::asio::ssl::verify_peer);
-            //                    m_securesocket->set_verify_callback(make_verbose_verification(boost::asio::ssl::rfc2818_verification(m_conn->Host())));
-            //                }
-            //# ifdef _WIN32
-            //                HCERTSTORE hStore = CertOpenSystemStore(0, "ROOT");
-            //                if (hStore == nullptr)
-            //                {
-            //                    return;
-            //                }
-
-            //                X509_STORE* store = X509_STORE_new();
-            //                PCCERT_CONTEXT pContext = nullptr;
-            //                while ((pContext = CertEnumCertificatesInStore(hStore, pContext)) != nullptr)
-            //                {
-            //                    X509* x509 = d2i_X509(nullptr, (const unsigned char**)&pContext->pbCertEncoded, pContext->cbCertEncoded);
-            //                    if (x509 != nullptr)
-            //                    {
-            //                        X509_STORE_add_cert(store, x509);
-            //                        X509_free(x509);
-            //                    }
-            //                }
-
-            //                CertFreeCertificateContext(pContext);
-            //                CertCloseStore(hStore, 0);
-
-            //                SSL_CTX_set_cert_store(ctx.native_handle(), store);
-            //#else
-            //                char* certPath = getenv("SSL_CERT_FILE");
-            //                try
-            //                {
-            //                    ctx.load_verify_file(certPath ? certPath : "/etc/ssl/certs/ca-certificates.crt");
-            //                }
-            //                catch (...)
-            //        {
-            //                    cwarn << "Failed to load ca certificates. Either the file "
-            //                     "'/etc/ssl/certs/ca-certificates.crt' does not exist";
-            //                    cwarn << "or the environment variable SSL_CERT_FILE is set to an invalid or "
-            //                     "inaccessible file.";
-            //                    cwarn << "It is possible that certificate verification can fail.";
-            //                }
-            //#endif
-            //                }
-            //    else
-            //                {
-            //                    m_nonsecuresocket = std::make_shared<boost::asio::ip::tcp::socket>(m_io_service);
-            //                    m_socket = m_nonsecuresocket.get();
-            //                }
-
-            //                // Activate keep alive to detect disconnects
-            //                unsigned int keepAlive = 10000;
-
-            //#if defined(_WIN32)
-            //    int32_t timeout = keepAlive;
-            //    setsockopt(
-            //        m_socket->native_handle(), SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
-            //    setsockopt(
-            //        m_socket->native_handle(), SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof(timeout));
-            //#else
-            //                timeval tv{ static_cast<suseconds_t>(keepAlive / 1000), static_cast<suseconds_t>(keepAlive % 1000)};
-            //                setsockopt(m_socket->native_handle(), SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-            //                setsockopt(m_socket->native_handle(), SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-            //#endif
         }
 
         public void SetOptions()
         {
-            //_socket.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
-            //_socket.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.NoDelay, true);
-            //_nonsecuresocket.set_option(boost::asio::socket_base::keep_alive(true));
-            //_nonsecuresocket.set_option(tcp::no_delay(true));
+            //Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+            //Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.NoDelay, true);
         }
     }
 
@@ -130,12 +48,10 @@ namespace Crypto.IO
         // default interval for workloop timer (milliseconds)
         int _workloopInterval = 1000;
 
-        WorkPackage _current;
-        DateTime _currentTimestamp;
+        //WorkPackage _current;
+        DateTime _current_Timestamp;
 
         StratumTcpClient _socket = null;
-        string _message;  // The internal message string buffer
-        bool _newJobProcessed = false;
 
         Stream _stream;
         StreamReader _recvBuf;
@@ -164,7 +80,6 @@ namespace Crypto.IO
             _workloopTimer = new Timer(WorkloopTimer_Elapsed, null, Timeout.Infinite, Timeout.Infinite);
             ClearResponsePleas();
         }
-
 
         public override async Task ConnectAsync()
         {
@@ -195,9 +110,9 @@ namespace Crypto.IO
                     foreach (var dns in result)
                         _endpoints.Enqueue(new IPEndPoint(dns, _conn.Port));
                 }
-                catch (Exception ec)
+                catch (Exception ex)
                 {
-                    Console.WriteLine($"Could not resolve host {_conn.Host}, {ec.Message}");
+                    Console.WriteLine($"Could not resolve host {_conn.Host}, {ex.Message}");
 
                     // Release locking flag and set connection status
                     _connecting = 0; //: atomic
@@ -221,7 +136,7 @@ namespace Crypto.IO
                 return Task.CompletedTask;
             _connected = false; //: atomic
 
-            Console.WriteLine("EthStratumClient::disconnect() begin");
+            Console.WriteLine($"{nameof(EthStratumClient)}::{nameof(DisconnectAsync)}() begin");
 
             // Cancel any outstanding async operation
             //_socket?.Cancel();
@@ -249,7 +164,7 @@ namespace Crypto.IO
                 }
 
             DisconnectFinalize();
-            Console.WriteLine("EthStratumClient::disconnect() end");
+            Console.WriteLine($"{nameof(EthStratumClient)}::{nameof(DisconnectAsync)}() end");
             return Task.CompletedTask;
         }
 
@@ -357,7 +272,9 @@ namespace Crypto.IO
 
                     // Discard this endpoint and try the next available. Eventually is start_connect which will check for an empty list.
                     _endpoints.Dequeue();
+#pragma warning disable CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
                     Task.Run(StartConnect);
+#pragma warning restore CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
 
                     Console.WriteLine($"{nameof(EthStratumClient)}::{nameof(StartConnect)}() end1");
                     return;
@@ -367,8 +284,6 @@ namespace Crypto.IO
             // We got a socket connection established
             _conn.Responds(true);
             _connected = true; //: atomic
-
-            _message = null;
 
             // Clear txqueue
             _txQueue.Clear();
@@ -381,41 +296,18 @@ namespace Crypto.IO
             _socket.SetOptions();
             if (_conn.GetStratumSecLevel() != StratumSecLevel.None)
             {
-                //_securesocket->handshake(boost::asio::ssl::stream_base::client, hec);
-                //_secureSocket.AuthenticateAsClient()
-                var hec = (int?)null;
-                if (hec != null)
+                var sslStream = new SslStream(_socket.GetStream());
+                try
                 {
-                    Console.WriteLine("SSL/TLS Handshake failed: {hec.message()}");
-                    if (hec.Value == 337047686)
-                    {  // certificate verification failed
-                        Console.WriteLine(@"
-This can have multiple reasons:
-* Root certs are either not installed or not found
-* Pool uses a self-signed certificate
-* Pool hostname you're connecting to does not match the CN registered for the certificate.
-
-Possible fixes:
-
-WINDOWS:
-* Make sure the file '/etc/ssl/certs/ca-certificates.crt' exists and is accessible
-* Export the correct path via 'export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt' to the correct file
-  On most systems you can install the 'ca-certificates' package
-  You can also get the latest file here:
-https://curl.haxx.se/docs/caextract.html
-
-ALL:
-* Double check hostname in the -P argument.
-* Disable certificate verification all-together via environment variable. See ethminer --help for info about environment variables
-
-If you do the latter please be advised you might expose yourself to the risk of seeing your shares stolen
-");
-                    }
-
-                    // This is a fatal error
-                    // No need to try other IPs as the certificate is based on host-name not ip address. Trying other IPs would end up with the very same error.
+                    sslStream.AuthenticateAsClient(_conn.Host);
+                    _stream = sslStream;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"SSL/TLS Handshake failed: {ex.Message}");
+                    // This is a fatal error. No need to try other IPs as the certificate is based on host-name not ip address. Trying other IPs would end up with the very same error.
                     _conn.MarkUnrecoverable();
-                    Task.Run(DisconnectAsync);
+                    await DisconnectAsync();
                     Console.WriteLine($"{nameof(EthStratumClient)}::{nameof(StartConnect)}() end2");
                     return;
                 }
@@ -429,11 +321,9 @@ If you do the latter please be advised you might expose yourself to the risk of 
             ClearResponsePleas();
 
             /*
-            If connection has been set-up with a specific scheme then set it's related stratum version as confirmed.
+            If connection has been set-up with a specific scheme then set it's related stratum version as confirmed, otherwise let's go through an autodetection.
 
-            Otherwise let's go through an autodetection.
-
-            Autodetection process passes all known stratum modes.
+            Autodetection process passes all known stratum modes:
             - 1st pass EthStratumClient::ETHEREUMSTRATUM2 (3)
             - 2nd pass EthStratumClient::ETHEREUMSTRATUM  (2)
             - 3rd pass EthStratumClient::ETHPROXY         (1)
@@ -444,34 +334,31 @@ If you do the latter please be advised you might expose yourself to the risk of 
             else if (!_conn.StratumModeConfirmed() && _conn.GetStratumMode() == StratumVersion.AutoDetect)
                 _conn.SetStratumMode(StratumVersion.EthereumStratum2, false);
 
-            object req;
             var (user, worker, pass) = _conn.StratumUserInfo();
             switch (_conn.GetStratumMode())
             {
                 case StratumVersion.Stratum:
-                    req = new
+                    Send(new
                     {
                         id = 1U,
                         method = "mining.subscribe",
-                        jsonrpc = "2.0",
                         @params = new string[0],
-                    };
+                    }, "2.0");
                     break;
                 case StratumVersion.EthProxy:
-                    req = new
+                    Send(new
                     {
                         id = 1U,
                         method = "eth_submitLogin",
                         worker,
-                        jsonrpc = "2.0",
                         @params = new string[] {
                             $"{user}{_conn.AbsolutePath}",
                             pass
                         }.ClampArray(),
-                    };
+                    }, "2.0");
                     break;
                 case StratumVersion.EthereumStratum:
-                    req = new
+                    Send(new
                     {
                         id = 1U,
                         method = "mining.subscribe",
@@ -479,10 +366,10 @@ If you do the latter please be advised you might expose yourself to the risk of 
                             ProjectNameWithVersion,
                             "EthereumStratum/1.0.0"
                         }
-                    };
+                    });
                     break;
                 case StratumVersion.EthereumStratum2:
-                    req = new
+                    Send(new
                     {
                         id = 1U,
                         method = "mining.hello",
@@ -493,13 +380,15 @@ If you do the latter please be advised you might expose yourself to the risk of 
                             port = $"{_conn.Port}:x",
                             proto = "EthereumStratum/2.0.0"
                         }
-                    };
+                    });
                     break;
                 default: throw new ArgumentOutOfRangeException(nameof(StratumVersion), _conn.GetStratumMode().ToString());
             }
 
             // Begin receive data
+#pragma warning disable CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
             Task.Run(RecvSocketData);
+#pragma warning restore CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
 
             /*
             Send first message
@@ -509,15 +398,15 @@ If you do the latter please be advised you might expose yourself to the risk of 
             and switch to next stratum mode test
             */
             EnqueueResponsePlea();
-            Send(req);
 
             Console.WriteLine($"{nameof(EthStratumClient)}::{nameof(StartConnect)}() end");
         }
 
+        static readonly JsonElement EmptyRequest = JsonDocument.Parse(@"{""id"":1,""result"":null,""error"":true}").RootElement;
         void WorkloopTimer_Elapsed(object ec)
         {
             // On timer cancelled or nothing to check for then early exit
-            if (((string)ec == "operation_aborted") || _conn == null)
+            if (_conn == null) // ((string)ec == "operation_aborted") || 
                 return;
 
             // No msg from client (EthereumStratum/2.0.0)
@@ -574,8 +463,7 @@ If you do the latter please be advised you might expose yourself to the risk of 
                         {
                             // Waiting for a response from pool to a login request. Async self send a fake error response.
                             ClearResponsePleas();
-                            var emptyRequest = JsonDocument.Parse(@"{""id"" = 1, ""result"" = null, ""error"" = true}").RootElement;
-                            Task.Run(() => ProcessResponse(emptyRequest));
+                            Task.Run(() => ProcessResponse(EmptyRequest));
                         }
                         else
                         {
@@ -587,7 +475,7 @@ If you do the latter please be advised you might expose yourself to the risk of 
                         }
                     }
                     // No work timeout
-                    else if (_session != null && (DateTime.Now - _currentTimestamp).TotalSeconds > _workTimeout)
+                    else if (_session != null && (DateTime.Now - _current_Timestamp).TotalSeconds > _workTimeout)
                     {
                         Console.WriteLine($"No new work received in {_workTimeout} seconds.");
                         _endpoints.Dequeue();
@@ -605,874 +493,651 @@ If you do the latter please be advised you might expose yourself to the risk of 
         {
             // Start a new session of data
             _session = new Session();
-            _currentTimestamp = DateTime.Now;
+            _current_Timestamp = DateTime.Now;
 
             // Invoke higher level handlers
             _onConnected?.Invoke(_f, this);
-        }
-
-        string ProcessError()
-        {
-            string retVar;
-            //if (responseObject.isMember("error") && !responseObject.get("error", Json::Value::null).isNull())
-            //{
-            //    //if (responseObject["error"].isConvertibleTo(Json::ValueType::stringValue))
-            //    //{
-            //    //    retVar = responseObject.get("error", "Unknown error").asString();
-            //    //}
-            //    //else if (responseObject["error"].isConvertibleTo(Json::ValueType::arrayValue))
-            //    //{
-            //    //    foreach (var i in responseObject["error"])
-            //    //        retVar += i.asString() + " ";
-            //    //}
-            //    //else if (responseObject["error"].isConvertibleTo(Json::ValueType::objectValue))
-            //    //{
-            //    //    foreach (var i in responseObject["error"])
-            //    //    {
-            //    //        Json::Value k = i.key();
-            //    //        Json::Value v = (*i);
-            //    //        retVar += (std::string)i.name() + ":" + v.asString() + " ";
-            //    //    }
-            //    //}
-            //}
-            //else
-            retVar = "Unknown error";
-            return retVar;
         }
 
         void ProcessExtranonce(string enonce)
         {
             _session.ExtraNonceSizeBytes = enonce.Length;
             Console.WriteLine($"Extranonce set to {Ansi.White}{enonce}{Ansi.Reset}");
-            enonce = enonce.PadRight(16, '0');
-            _session.ExtraNonce = ulong.Parse(enonce);
+            _session.ExtraNonce = ulong.Parse(enonce.PadRight(16, '0'));
         }
 
-        void ProcessResponse(JsonElement responseObject)
+        object ProcessResponse(JsonElement res)
         {
-            //// Store jsonrpc version to test against
-            //int _rpcVer = responseObject.isMember("jsonrpc") ? 2 : 1;
-
-            //bool _isNotification = false;  // Whether or not this message is a reply to previous request or
-            //                               // is a broadcast notification
-            //bool _isSuccess = false;       // Whether or not this is a succesful or failed response (implies
-            //                               // _isNotification = false)
-            //string _errReason = "";        // Content of the error reason
-            //string _method = "";           // The method of the notification (or request from pool)
-            //unsigned _id = 0;  // This SHOULD be the same id as the request it is responding to (known
-            //                   // exception is ethermine.org using 999)
-
-
-            //// Retrieve essential values
-            //_id = responseObject.get("id", unsigned(0)).asUInt();
-            //_isSuccess = responseObject.get("error", Json::Value::null).empty();
-            //_errReason = (_isSuccess ? "" : processError(responseObject));
-            //_method = responseObject.get("method", "").asString();
-            //_isNotification = (_method != "" || _id == unsigned(0));
-
-            //// Notifications of new jobs are like responses to get_work requests
-            //if (_isNotification && _method == "" && m_conn->StratumMode() == EthStratumClient::ETHPROXY &&
-            //    responseObject["result"].isArray())
-            //{
-            //    _method = "mining.notify";
-            //}
-
-            //// Very minimal sanity checks
-            //// - For rpc2 member "jsonrpc" MUST be valued to "2.0"
-            //// - For responses ... well ... whatever
-            //// - For notifications I must receive "method" member and a not empty "params" or "result"
-            //// member
-            //if ((_rpcVer == 2 && (!responseObject["jsonrpc"].isString() ||
-            //                         responseObject.get("jsonrpc", "") != "2.0")) ||
-            //    (_isNotification && (responseObject["params"].empty() && responseObject["result"].empty())))
-            //{
-            //    cwarn << "Pool sent an invalid jsonrpc message...";
-            //    cwarn << "Do not blame ethminer for this. Ask pool devs to honor http://www.jsonrpc.org/ "
-            //             "specifications ";
-            //    cwarn << "Disconnecting...";
-            //    m_io_service.post(m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
-            //    return;
-            //}
-
-
-            //// Handle awaited responses to OUR requests (calc response times)
-            //if (!_isNotification)
-            //{
-            //    Json::Value jReq;
-            //    Json::Value jResult = responseObject.get("result", Json::Value::null);
-            //    std::chrono::milliseconds response_delay_ms(0);
-
-            //    if (_id == 1)
-            //    {
-            //        response_delay_ms = dequeue_response_plea();
-
-            //        /*
-            //        This is the response to very first message after connection.
-            //        Message request vary upon stratum flavour
-            //        I wish I could manage to have different Ids but apparently ethermine.org always replies
-            //        to first message with id=1 regardless the id originally sent.
-            //        */
-
-            //        /*
-            //        If we're in autodetection phase an error message (of any kind) means
-            //        the selected stratum flavour does not comply with the one implemented by the
-            //        work provider (the pool) : thus exit, disconnect and try another one
-            //        */
-
-            //        if (!_isSuccess && !m_conn->StratumModeConfirmed())
-            //        {
-            //            // Disconnect and Proceed with next step of autodetection
-            //            switch (m_conn->StratumMode())
-            //            {
-            //                case ETHEREUMSTRATUM2:
-            //                    cnote << "Negotiation of EthereumStratum/2.0.0 failed. Trying another ...";
-            //                    break;
-            //                case ETHEREUMSTRATUM:
-            //                    cnote << "Negotiation of EthereumStratum/1.0.0 failed. Trying another ...";
-            //                    break;
-            //                case ETHPROXY:
-            //                    cnote << "Negotiation of Eth-Proxy compatible failed. Trying another ...";
-            //                    break;
-            //                case STRATUM:
-            //                    cnote << "Negotiation of Stratum failed.";
-            //                    break;
-            //                default:
-            //                    // Should not happen
-            //                    break;
-            //            }
-
-            //            m_io_service.post(
-            //                m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
-            //            return;
-            //        }
-
-            //        /*
-            //        Process response for each stratum flavour :
-            //        ETHEREUMSTRATUM2 response to mining.hello
-            //        ETHEREUMSTRATUM  response to mining.subscribe
-            //        ETHPROXY         response to eth_submitLogin
-            //        STRATUM          response to mining.subscribe
-            //        */
-
-            //        switch (m_conn->StratumMode())
-            //        {
-            //            case EthStratumClient::ETHEREUMSTRATUM2:
-
-            //                _isSuccess = (jResult.isConvertibleTo(Json::ValueType::objectValue) &&
-            //                              jResult.isMember("proto") &&
-            //                              jResult["proto"].asString() == "EthereumStratum/2.0.0" &&
-            //                              jResult.isMember("encoding") && jResult.isMember("resume") &&
-            //                              jResult.isMember("timeout") && jResult.isMember("maxerrors") &&
-            //                              jResult.isMember("node"));
-
-            //                if (_isSuccess)
-            //                {
-            //                    // Selected flavour is confirmed
-            //                    m_conn->SetStratumMode(3, true);
-            //                    cnote << "Stratum mode : EthereumStratum/2.0.0";
-            //                    startSession();
-
-            //                    // Send request for subscription
-            //                    jReq["id"] = unsigned(2);
-            //                    jReq["method"] = "mining.subscribe";
-            //                    enqueue_response_plea();
-            //                }
-            //                else
-            //                {
-            //                    // If no autodetection the connection is not usable
-            //                    // with this stratum flavor
-            //                    if (m_conn->StratumModeConfirmed())
-            //                    {
-            //                        m_conn->MarkUnrecoverable();
-            //                        cnote << "Negotiation of EthereumStratum/2.0.0 failed. Change your "
-            //                                 "connection parameters";
-            //                    }
-            //                    else
-            //                    {
-            //                        cnote << "Negotiation of EthereumStratum/2.0.0 failed. Trying another ...";
-            //                    }
-            //                    // Disconnect
-            //                    m_io_service.post(
-            //                        m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
-            //                    return;
-            //                }
-
-            //                break;
-
-            //            case EthStratumClient::ETHEREUMSTRATUM:
-
-            //                _isSuccess = (jResult.isArray() && jResult[0].isArray() && jResult[0].size() == 3 &&
-            //                              jResult[0].get(Json::Value::ArrayIndex(2), "").asString() ==
-            //                                  "EthereumStratum/1.0.0");
-            //                if (_isSuccess)
-            //                {
-            //                    // Selected flavour is confirmed
-            //                    m_conn->SetStratumMode(2, true);
-            //                    cnote << "Stratum mode : EthereumStratum/1.0.0 (NiceHash)";
-            //                    startSession();
-            //                    m_session->subscribed.store(true, memory_order_relaxed);
-
-            //                    // Notify we're ready for extra nonce subscribtion on the fly
-            //                    // reply to this message should not perform any logic
-            //                    jReq["id"] = unsigned(2);
-            //                    jReq["method"] = "mining.extranonce.subscribe";
-            //                    jReq["params"] = Json::Value(Json::arrayValue);
-            //                    send(jReq);
-
-            //                    std::string enonce = jResult.get(Json::Value::ArrayIndex(1), "").asString();
-            //                    if (!enonce.empty()) processExtranonce(enonce);
-
-            //                    // Eventually request authorization
-            //                    m_authpending.store(true, std::memory_order_relaxed);
-            //                    jReq["id"] = unsigned(3);
-            //                    jReq["method"] = "mining.authorize";
-            //                    jReq["params"].append(m_conn->UserDotWorker() + m_conn->Path());
-            //                    jReq["params"].append(m_conn->Pass());
-            //                    enqueue_response_plea();
-            //                }
-            //                else
-            //                {
-            //                    // If no autodetection the connection is not usable
-            //                    // with this stratum flavor
-            //                    if (m_conn->StratumModeConfirmed())
-            //                    {
-            //                        m_conn->MarkUnrecoverable();
-            //                        cnote << "Negotiation of EthereumStratum/1.0.0 (NiceHash) failed. Change "
-            //                                 "your "
-            //                                 "connection parameters";
-            //                    }
-            //                    else
-            //                    {
-            //                        cnote << "Negotiation of EthereumStratum/1.0.0 (NiceHash) failed. Trying "
-            //                                 "another ...";
-            //                    }
-            //                    // Disconnect
-            //                    m_io_service.post(
-            //                        m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
-            //                    return;
-            //                }
-
-            //                break;
-
-            //            case EthStratumClient::ETHPROXY:
-
-            //                if (_isSuccess)
-            //                {
-            //                    // Selected flavour is confirmed
-            //                    m_conn->SetStratumMode(1, true);
-            //                    cnote << "Stratum mode : Eth-Proxy compatible";
-            //                    startSession();
-
-            //                    m_session->subscribed.store(true, std::memory_order_relaxed);
-            //                    m_session->authorized.store(true, std::memory_order_relaxed);
-
-            //                    // Request initial work
-            //                    jReq["id"] = unsigned(5);
-            //                    jReq["method"] = "eth_getWork";
-            //                    jReq["params"] = Json::Value(Json::arrayValue);
-            //                }
-            //                else
-            //                {
-            //                    // If no autodetection the connection is not usable
-            //                    // with this stratum flavor
-            //                    if (m_conn->StratumModeConfirmed())
-            //                    {
-            //                        m_conn->MarkUnrecoverable();
-            //                        cnote << "Negotiation of Eth-Proxy compatible failed. Change your "
-            //                                 "connection parameters";
-            //                    }
-            //                    else
-            //                    {
-            //                        cnote << "Negotiation of Eth-Proxy compatible failed. Trying "
-            //                                 "another ...";
-            //                    }
-            //                    // Disconnect
-            //                    m_io_service.post(
-            //                        m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
-            //                    return;
-            //                }
-
-            //                break;
-
-            //            case EthStratumClient::STRATUM:
-
-            //                if (_isSuccess)
-            //                {
-            //                    // Selected flavour is confirmed
-            //                    m_conn->SetStratumMode(0, true);
-            //                    cnote << "Stratum mode : Stratum";
-            //                    startSession();
-            //                    m_session->subscribed.store(true, memory_order_relaxed);
-
-            //                    // Request authorization
-            //                    m_authpending.store(true, std::memory_order_relaxed);
-            //                    jReq["id"] = unsigned(3);
-            //                    jReq["jsonrpc"] = "2.0";
-            //                    jReq["method"] = "mining.authorize";
-            //                    jReq["params"] = Json::Value(Json::arrayValue);
-            //                    jReq["params"].append(m_conn->UserDotWorker() + m_conn->Path());
-            //                    jReq["params"].append(m_conn->Pass());
-            //                    enqueue_response_plea();
-            //                }
-            //                else
-            //                {
-            //                    // If no autodetection the connection is not usable
-            //                    // with this stratum flavor
-            //                    if (m_conn->StratumModeConfirmed())
-            //                    {
-            //                        m_conn->MarkUnrecoverable();
-            //                        cnote << "Negotiation of Eth-Proxy compatible failed. Change your "
-            //                                 "connection parameters";
-            //                    }
-            //                    else
-            //                    {
-            //                        cnote << "Negotiation of Eth-Proxy compatible failed. Trying "
-            //                                 "another ...";
-            //                    }
-            //                    // Disconnect
-            //                    m_io_service.post(
-            //                        m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
-            //                    return;
-            //                }
-
-            //                break;
-
-            //            default:
-
-            //                // Should not happen
-            //                break;
-            //        }
-
-
-            //        send(jReq);
-            //    }
-
-            //    else if (_id == 2)
-            //    {
-            //        // For EthereumStratum/1.0.0
-            //        // This is the response to mining.extranonce.subscribe
-            //        // according to this
-            //        // https://github.com/nicehash/Specifications/blob/master/NiceHash_extranonce_subscribe_extension.txt
-            //        // In all cases, client does not perform any logic when receiving back these replies.
-            //        // With mining.extranonce.subscribe subscription, client should handle extranonce1
-            //        // changes correctly
-            //        // Nothing to do here.
-
-            //        // For EthereumStratum/2.0.0
-            //        // This is the response to mining.subscribe
-            //        // https://github.com/AndreaLanfranchi/EthereumStratum-2.0.0#session-handling---response-to-subscription
-            //        if (m_conn->StratumMode() == 3)
-            //        {
-            //            response_delay_ms = dequeue_response_plea();
-
-            //            if (!jResult.isString() || !jResult.asString().size())
-            //            {
-            //                // Got invalid session id which is mandatory
-            //                cwarn << "Got invalid or missing session id. Disconnecting ... ";
-            //                m_conn->MarkUnrecoverable();
-            //                m_io_service.post(
-            //                    m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
-            //                return;
-            //            }
-
-            //            m_session->sessionId = jResult.asString();
-            //            m_session->subscribed.store(true, memory_order_relaxed);
-
-            //            // Request authorization
-            //            m_authpending.store(true, std::memory_order_relaxed);
-            //            jReq["id"] = unsigned(3);
-            //            jReq["method"] = "mining.authorize";
-            //            jReq["params"] = Json::Value(Json::arrayValue);
-            //            jReq["params"].append(m_conn->UserDotWorker() + m_conn->Path());
-            //            jReq["params"].append(m_conn->Pass());
-            //            enqueue_response_plea();
-            //            send(jReq);
-            //        }
-            //    }
-
-            //    else if (_id == 3 && m_conn->StratumMode() != ETHEREUMSTRATUM2)
-            //    {
-            //        response_delay_ms = dequeue_response_plea();
-
-            //        // Response to "mining.authorize"
-            //        // (https://en.bitcoin.it/wiki/Stratum_mining_protocol#mining.authorize) Result should
-            //        // be boolean, some pools also throw an error, so _isSuccess can be false Due to this
-            //        // reevaluate _isSuccess
-
-            //        if (_isSuccess && jResult.isBool())
-            //            _isSuccess = jResult.asBool();
-
-            //        m_authpending.store(false, std::memory_order_relaxed);
-            //        m_session->authorized.store(_isSuccess, std::memory_order_relaxed);
-
-            //        if (!isAuthorized())
-            //        {
-            //            cnote << "Worker " << EthWhite << m_conn->UserDotWorker() << EthReset
-            //                  << " not authorized : " << _errReason;
-            //            m_conn->MarkUnrecoverable();
-            //            m_io_service.post(
-            //                m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
-            //            return;
-            //        }
-            //        else
-            //        {
-            //            cnote << "Authorized worker " << m_conn->UserDotWorker();
-            //        }
-            //    }
-
-            //    else if (_id == 3 && m_conn->StratumMode() == ETHEREUMSTRATUM2)
-            //    {
-            //        response_delay_ms = dequeue_response_plea();
-
-            //        if (!_isSuccess || (!jResult.isString() || !jResult.asString().size()))
-            //        {
-            //            // Got invalid session id which is mandatory
-            //            cnote << "Worker " << EthWhite << m_conn->UserDotWorker() << EthReset
-            //                  << " not authorized : " << _errReason;
-            //            m_conn->MarkUnrecoverable();
-            //            m_io_service.post(
-            //                m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
-            //            return;
-            //        }
-            //        m_authpending.store(false, memory_order_relaxed);
-            //        m_session->authorized.store(true, memory_order_relaxed);
-            //        m_session->workerId = jResult.asString();
-            //        cnote << "Authorized worker " << m_conn->UserDotWorker();
-
-            //        // Nothing else to here. Wait for notifications from pool
-            //    }
-
-            //    else if ((_id >= 40 && _id <= m_solution_submitted_max_id) &&
-            //             m_conn->StratumMode() != ETHEREUMSTRATUM2)
-            //    {
-            //        response_delay_ms = dequeue_response_plea();
-
-            //        // Response to solution submission mining.submit
-            //        // (https://en.bitcoin.it/wiki/Stratum_mining_protocol#mining.submit) Result should be
-            //        // boolean, some pools also throw an error, so _isSuccess can be false Due to this
-            //        // reevaluate _isSucess
-
-            //        if (_isSuccess && jResult.isBool())
-            //            _isSuccess = jResult.asBool();
-
-            //        const unsigned miner_index = _id - 40;
-            //        if (_isSuccess)
-            //        {
-            //            if (m_onSolutionAccepted)
-            //                m_onSolutionAccepted(response_delay_ms, miner_index, false);
-            //        }
-            //        else
-            //        {
-            //            if (m_onSolutionRejected)
-            //            {
-            //                cwarn << "Reject reason : "
-            //                      << (_errReason.empty() ? "Unspecified" : _errReason);
-            //                m_onSolutionRejected(response_delay_ms, miner_index);
-            //            }
-            //        }
-            //    }
-
-            //    else if ((_id >= 40 && _id <= m_solution_submitted_max_id) &&
-            //             m_conn->StratumMode() == ETHEREUMSTRATUM2)
-            //    {
-            //        response_delay_ms = dequeue_response_plea();
-
-            //        // In EthereumStratum/2.0.0 we can evaluate the severity of the
-            //        // error. An 2xx error means the solution have been accepted but is
-            //        // likely stale
-            //        bool isStale = false;
-            //        if (!_isSuccess)
-            //        {
-            //            string errCode = responseObject["error"].get("code", "").asString();
-            //            if (errCode.substr(0, 1) == "2")
-            //                _isSuccess = isStale = true;
-            //        }
-
-
-            //        const unsigned miner_index = _id - 40;
-            //        if (_isSuccess)
-            //        {
-            //            if (m_onSolutionAccepted)
-            //                m_onSolutionAccepted(response_delay_ms, miner_index, isStale);
-            //        }
-            //        else
-            //        {
-
-            //            if (m_onSolutionRejected)
-            //            {
-            //                cwarn << "Reject reason : "
-            //                      << (_errReason.empty() ? "Unspecified" : _errReason);
-            //                m_onSolutionRejected(response_delay_ms, miner_index);
-            //            }
-            //        }
-            //    }
-
-            //    else if (_id == 5)
-            //    {
-            //        // This is the response we get on first get_work request issued
-            //        // in mode EthStratumClient::ETHPROXY
-            //        // thus we change it to a mining.notify notification
-            //        if (m_conn->StratumMode() == EthStratumClient::ETHPROXY &&
-            //            responseObject["result"].isArray())
-            //        {
-            //            _method = "mining.notify";
-            //            _isNotification = true;
-            //        }
-            //    }
-
-            //    else if (_id == 9)
-            //    {
-            //        // Response to hashrate submit
-            //        // Shall we do anything ?
-            //        // Hashrate submit is actually out of stratum spec
-            //        if (!_isSuccess)
-            //        {
-            //            cwarn << "Submit hashRate failed : "
-            //                  << (_errReason.empty() ? "Unspecified error" : _errReason);
-            //        }
-            //    }
-
-            //    else if (_id == 999)
-            //    {
-            //        // This unfortunate case should not happen as none of the outgoing requests is marked
-            //        // with id 999 However it has been tested that ethermine.org responds with this id when
-            //        // error replying to either mining.subscribe (1) or mining.authorize requests (3) To
-            //        // properly handle this situation we need to rely on Subscribed/Authorized states
-
-            //        if (!_isSuccess && !m_conn->StratumModeConfirmed())
-            //        {
-            //            // Disconnect and Proceed with next step of autodetection
-            //            switch (m_conn->StratumMode())
-            //            {
-            //                case ETHEREUMSTRATUM2:
-            //                    cnote << "Negotiation of EthereumStratum/2.0.0 failed. Trying another ...";
-            //                    break;
-            //                case ETHEREUMSTRATUM:
-            //                    cnote << "Negotiation of EthereumStratum/1.0.0 failed. Trying another ...";
-            //                    break;
-            //                case ETHPROXY:
-            //                    cnote << "Negotiation of Eth-Proxy compatible failed. Trying another ...";
-            //                    break;
-            //                case STRATUM:
-            //                    cnote << "Negotiation of Stratum failed.";
-            //                    break;
-            //                default:
-            //                    // Should not happen
-            //                    break;
-            //            }
-
-            //            m_io_service.post(
-            //                m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
-            //            return;
-            //        }
-
-            //        if (!_isSuccess)
-            //        {
-            //            if (!isSubscribed())
-            //            {
-            //                // Subscription pending
-            //                cnote << "Subscription failed : "
-            //                      << (_errReason.empty() ? "Unspecified error" : _errReason);
-            //                m_io_service.post(
-            //                    m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
-            //                return;
-            //            }
-            //            else if (isSubscribed() && !isAuthorized())
-            //            {
-            //                // Authorization pending
-            //                cnote << "Worker not authorized : "
-            //                      << (_errReason.empty() ? "Unspecified error" : _errReason);
-            //                m_io_service.post(
-            //                    m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
-            //                return;
-            //            }
-            //        };
-            //    }
-
-            //    else
-            //    {
-            //        cnote << "Got response for unknown message id [" << _id << "] Discarding...";
-            //        return;
-            //    }
-            //}
-
-            ///*
-
-
-            //Handle unsolicited messages FROM pool AKA notifications
-
-            //NOTE !
-            //Do not process any notification unless login validated
-            //which means we have detected proper stratum mode.
-
-            //*/
-
-            //if (_isNotification && m_conn->StratumModeConfirmed())
-            //{
-            //    Json::Value jReq;
-            //    Json::Value jPrm;
-
-            //    unsigned prmIdx;
-
-            //    if (_method == "mining.notify" && m_conn->StratumMode() != ETHEREUMSTRATUM2)
-            //    {
-            //        // Discard jobs if not properly subscribed
-            //        // or if a job for this transmission has already
-            //        // been processed
-            //        if (!isSubscribed() || m_newjobprocessed)
-            //            return;
-
-            //        /*
-            //        Workaround for Nanopool wrong implementation
-            //        see issue # 1348
-            //        */
-
-            //        if (m_conn->StratumMode() == EthStratumClient::ETHPROXY &&
-            //            responseObject.isMember("result"))
-            //        {
-            //            jPrm = responseObject.get("result", Json::Value::null);
-            //            prmIdx = 0;
-            //        }
-            //        else
-            //        {
-            //            jPrm = responseObject.get("params", Json::Value::null);
-            //            prmIdx = 1;
-            //        }
-
-
-            //        if (jPrm.isArray() && !jPrm.empty())
-            //        {
-            //            m_current.job = jPrm.get(Json::Value::ArrayIndex(0), "").asString();
-
-            //            if (m_conn->StratumMode() == EthStratumClient::ETHEREUMSTRATUM)
-            //            {
-            //                string sSeedHash = jPrm.get(Json::Value::ArrayIndex(1), "").asString();
-            //                string sHeaderHash = jPrm.get(Json::Value::ArrayIndex(2), "").asString();
-
-            //                if (sHeaderHash != "" && sSeedHash != "")
-            //                {
-            //                    m_current.seed = h256(sSeedHash);
-            //                    m_current.header = h256(sHeaderHash);
-            //                    m_current.boundary = m_session->nextWorkBoundary;
-            //                    m_current.startNonce = m_session->extraNonce;
-            //                    m_current.exSizeBytes = m_session->extraNonceSizeBytes;
-            //                    m_current_timestamp = std::chrono::steady_clock::now();
-            //                    m_current.block = -1;
-
-            //                    // This will signal to dispatch the job
-            //                    // at the end of the transmission.
-            //                    m_newjobprocessed = true;
-            //                }
-            //            }
-            //            else
-            //            {
-            //                string sHeaderHash = jPrm.get(Json::Value::ArrayIndex(prmIdx++), "").asString();
-            //                string sSeedHash = jPrm.get(Json::Value::ArrayIndex(prmIdx++), "").asString();
-            //                string sShareTarget =
-            //                    jPrm.get(Json::Value::ArrayIndex(prmIdx++), "").asString();
-
-            //                // Only some eth-proxy compatible implementations carry the block number
-            //                // namely ethermine.org
-            //                m_current.block = -1;
-            //                if (m_conn->StratumMode() == EthStratumClient::ETHPROXY &&
-            //                    jPrm.size() > prmIdx &&
-            //                    jPrm.get(Json::Value::ArrayIndex(prmIdx), "").asString().substr(0, 2) ==
-            //                        "0x")
-            //                {
-            //                    try
-            //                    {
-            //                        m_current.block =
-            //                            std::stoul(jPrm.get(Json::Value::ArrayIndex(prmIdx), "").asString(),
-            //                                nullptr, 16);
-            //                        /*
-            //                        check if the block number is in a valid range
-            //                        A year has ~31536000 seconds
-            //                        50 years have ~1576800000
-            //                        assuming a (very fast) blocktime of 10s:
-            //                        ==> in 50 years we get 157680000 (=0x9660180) blocks
-            //                        */
-            //                        if (m_current.block > 0x9660180)
-            //                            throw new std::exception();
-            //                    }
-            //                    catch (const std::exception&)
-            //            {
-            //                        m_current.block = -1;
-            //                    }
-            //                    }
-
-            //                    // coinmine.pl fix
-            //                    int l = sShareTarget.length();
-            //                    if (l < 66)
-            //                        sShareTarget = "0x" + string(66 - l, '0') + sShareTarget.substr(2);
-
-            //                    m_current.seed = h256(sSeedHash);
-            //                    m_current.header = h256(sHeaderHash);
-            //                    m_current.boundary = h256(sShareTarget);
-            //                    m_current_timestamp = std::chrono::steady_clock::now();
-
-            //                    // This will signal to dispatch the job
-            //                    // at the end of the transmission.
-            //                    m_newjobprocessed = true;
-            //                }
-            //            }
-            //        }
-            //        else if (_method == "mining.notify" && m_conn->StratumMode() == ETHEREUMSTRATUM2)
-            //        {
-            //            /*
-            //            {
-            //              "method": "mining.notify",
-            //              "params": [
-            //                  "bf0488aa",
-            //                  "6526d5"
-            //                  "645cf20198c2f3861e947d4f67e3ab63b7b2e24dcc9095bd9123e7b33371f6cc",
-            //                  "0"
-            //              ]
-            //            }
-            //            */
-            //            if (!m_session || !m_session->firstMiningSet)
-            //            {
-            //                cwarn << "Got mining.notify before mining.set message. Discarding ...";
-            //                return;
-            //            }
-
-            //            if (!responseObject.isMember("params") || !responseObject["params"].isArray() ||
-            //                responseObject["params"].empty() || responseObject["params"].size() != 4)
-            //            {
-            //                cwarn << "Got invalid mining.notify message. Discarding ...";
-            //                return;
-            //            }
-
-            //            jPrm = responseObject["params"];
-            //            m_current.job = jPrm.get(Json::Value::ArrayIndex(0), "").asString();
-            //            m_current.block =
-            //                stoul(jPrm.get(Json::Value::ArrayIndex(1), "").asString(), nullptr, 16);
-
-            //            string header =
-            //                "0x" + dev::padLeft(jPrm.get(Json::Value::ArrayIndex(2), "").asString(), 64, '0');
-
-            //            m_current.header = h256(header);
-            //            m_current.boundary = h256(m_session->nextWorkBoundary.hex(HexPrefix::Add));
-            //            m_current.epoch = m_session->epoch;
-            //            m_current.algo = m_session->algo;
-            //            m_current.startNonce = m_session->extraNonce;
-            //            m_current.exSizeBytes = m_session->extraNonceSizeBytes;
-            //            m_current_timestamp = std::chrono::steady_clock::now();
-
-            //            // This will signal to dispatch the job
-            //            // at the end of the transmission.
-            //            m_newjobprocessed = true;
-            //        }
-            //        else if (_method == "mining.set_difficulty" && m_conn->StratumMode() == ETHEREUMSTRATUM)
-            //        {
-            //            if (m_conn->StratumMode() == EthStratumClient::ETHEREUMSTRATUM)
-            //            {
-            //                jPrm = responseObject.get("params", Json::Value::null);
-            //                if (jPrm.isArray())
-            //                {
-            //                    double nextWorkDifficulty =
-            //                        max(jPrm.get(Json::Value::ArrayIndex(0), 1).asDouble(), 0.0001);
-
-            //                    m_session->nextWorkBoundary = h256(dev::getTargetFromDiff(nextWorkDifficulty));
-            //                }
-            //            }
-            //            else
-            //            {
-            //                cwarn << "Invalid mining.set_difficulty rpc method. Disconnecting ...";
-            //                if (m_conn->StratumModeConfirmed())
-            //                {
-            //                    m_conn->MarkUnrecoverable();
-            //                }
-            //                m_io_service.post(
-            //                    m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
-            //            }
-            //        }
-            //        else if (_method == "mining.set_extranonce" && m_conn->StratumMode() == ETHEREUMSTRATUM)
-            //        {
-            //            jPrm = responseObject.get("params", Json::Value::null);
-            //            if (jPrm.isArray())
-            //            {
-            //                std::string enonce = jPrm.get(Json::Value::ArrayIndex(0), "").asString();
-            //                if (!enonce.empty())
-            //                    processExtranonce(enonce);
-            //            }
-            //        }
-            //        else if (_method == "mining.set" && m_conn->StratumMode() == ETHEREUMSTRATUM2)
-            //        {
-            //            /*
-            //            {
-            //              "method": "mining.set",
-            //              "params": {
-            //                  "epoch" : "dc",
-            //                  "target" : "0112e0be826d694b2e62d01511f12a6061fbaec8bc02357593e70e52ba",
-            //                  "algo" : "ethash",
-            //                  "extranonce" : "af4c"
-            //              }
-            //            }
-            //            */
-            //            if (!responseObject.isMember("params") || !responseObject["params"].isObject() ||
-            //                responseObject["params"].empty())
-            //            {
-            //                cwarn << "Got invalid mining.set message. Discarding ...";
-            //                return;
-            //            }
-            //            m_session->firstMiningSet = true;
-            //            jPrm = responseObject["params"];
-            //            string timeout = jPrm.get("timeout", "").asString();
-            //            string epoch = jPrm.get("epoch", "").asString();
-            //            string target = jPrm.get("target", "").asString();
-
-            //            if (!timeout.empty())
-            //                m_session->timeout = stoi(timeout, nullptr, 16);
-
-            //            if (!epoch.empty())
-            //                m_session->epoch = stoul(epoch, nullptr, 16);
-
-            //            if (!target.empty())
-            //            {
-            //                target = "0x" + dev::padLeft(target, 64, '0');
-            //                m_session->nextWorkBoundary = h256(target);
-            //            }
-
-            //            m_session->algo = jPrm.get("algo", "ethash").asString();
-            //            string enonce = jPrm.get("extranonce", "").asString();
-            //            if (!enonce.empty())
-            //                processExtranonce(enonce);
-            //        }
-            //        else if (_method == "mining.bye" && m_conn->StratumMode() == ETHEREUMSTRATUM2)
-            //        {
-            //            cnote << m_conn->Host() << " requested connection close. Disconnecting ...";
-            //            m_io_service.post(m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
-            //        }
-            //        else if (_method == "client.get_version")
-            //        {
-            //            jReq["id"] = _id;
-            //            jReq["result"] = ethminer_get_buildinfo()->project_name_with_version;
-
-            //            if (_rpcVer == 1)
-            //            {
-            //                jReq["error"] = Json::Value::null;
-            //            }
-            //            else if (_rpcVer == 2)
-            //            {
-            //                jReq["jsonrpc"] = "2.0";
-            //            }
-
-            //            send(jReq);
-            //        }
-            //        else
-            //        {
-            //            cwarn << "Got unknown method [" << _method << "] from pool. Discarding...";
-
-            //            // Respond back to issuer
-            //            if (_rpcVer == 2)
-            //                jReq["jsonrpc"] = "2.0";
-
-            //            jReq["id"] = _id;
-            //            jReq["error"] = "Method not found";
-
-            //            send(jReq);
-            //        }
-            //    }
+            string ProcessError(JsonElement s)
+            {
+                switch (s.ValueKind)
+                {
+                    case JsonValueKind.Null: return null;
+                    case JsonValueKind.String: return s.GetString();
+                    case JsonValueKind.Array:
+                    case JsonValueKind.Object:
+                        var b = new StringBuilder();
+                        if (s.ValueKind == JsonValueKind.Array)
+                            foreach (var x in s.EnumerateArray())
+                                b.Append($"{x.GetString()} ");
+                        else
+                            foreach (var x in s.EnumerateObject())
+                                b.Append($"{x.Name}: {x.Value.GetString()} ");
+                        if (b.Length > 0)
+                            b.Length--;
+                        return b.ToString();
+                    default: return null;
+                }
+            }
+
+            // Retrieve essential values
+            var rpc = res.TryGetProperty("jsonrpc", out var z) ? z.GetString() ?? "2.0" : null;
+            var id = res.TryGetProperty("id", out z) && z.ValueKind == JsonValueKind.Number ? z.GetUInt32() : 0; // This SHOULD be the same id as the request it is responding to (known exception is ethermine.org using 999)
+            var errReason = res.TryGetProperty("error", out z) ? ProcessError(z) : null; // Content of the error reason
+            var isSuccess = string.IsNullOrEmpty(errReason); // Whether or not this is a succesful or failed response (implies isNotification = false)
+            var method = res.TryGetProperty("method", out z) ? z.GetString() : null; // The method of the notification (or request from pool)
+            var params_ = res.TryGetProperty("params", out z) ? z : default;
+            var result = res.TryGetProperty("result", out z) ? z : default;
+
+            // Notifications of new jobs are like responses to get_work requests
+            var notification = method != null || id == 0U; // Whether or not this message is a reply to previous request or is a broadcast notification
+            if (notification && string.IsNullOrEmpty(method) && _conn.GetStratumMode() == StratumVersion.EthProxy && result.ValueKind == JsonValueKind.Array)
+                method = "mining.notify";
+
+            // Very minimal sanity checks
+            // - For rpc2 member "jsonrpc" MUST be valued to "2.0"
+            // - For responses ... well ... whatever
+            // - For notifications I must receive "method" member and a not empty "params" or "result" member
+            if ((rpc != null && rpc != "2.0") || (notification && params_.ValueKind == JsonValueKind.Undefined && result.ValueKind == JsonValueKind.Undefined))
+            {
+                Console.WriteLine("Pool sent an invalid jsonrpc message...");
+                Console.WriteLine("Ask pool devs to honor http://www.jsonrpc.org/ specifications.");
+                Console.WriteLine("Disconnecting...");
+                Task.Run(DisconnectAsync);
+                return null;
+            }
+
+            // Handle awaited responses to OUR requests (calc response times)
+            if (!notification)
+            {
+                double responseDelayMs;
+                switch (id)
+                {
+                    case 1U:
+                        // This is the response to very first message after connection.
+                        // Message request vary upon stratum flavour
+                        // I wish I could manage to have different Ids but apparently ethermine.org always replies to first message with id=1 regardless the id originally sent.
+                        responseDelayMs = DequeueResponsePlea();
+
+                        // If we're in autodetection phase an error message (of any kind) means the selected stratum flavour does not comply with the one implemented by the
+                        // work provider (the pool) : thus exit, disconnect and try another one
+                        if (!isSuccess && !_conn.StratumModeConfirmed())
+                        {
+                            switch (_conn.GetStratumMode())
+                            {
+                                case StratumVersion.EthereumStratum2: Console.WriteLine("Negotiation of EthereumStratum/2.0.0 failed. Trying another ..."); break;
+                                case StratumVersion.EthereumStratum: Console.WriteLine("Negotiation of EthereumStratum/1.0.0 failed. Trying another ..."); break;
+                                case StratumVersion.EthProxy: Console.WriteLine("Negotiation of Eth-Proxy compatible failed. Trying another ..."); break;
+                                case StratumVersion.Stratum: Console.WriteLine("Negotiation of Stratum failed."); break;
+                                default: throw new ArgumentOutOfRangeException(nameof(_conn));
+                            }
+                            // Disconnect and Proceed with next step of autodetection
+                            Task.Run(DisconnectAsync);
+                            break;
+                        }
+
+                        /*
+                        Process response for each stratum flavour:
+                        ETHEREUMSTRATUM2 response to mining.hello
+                        ETHEREUMSTRATUM  response to mining.subscribe
+                        ETHPROXY         response to eth_submitLogin
+                        STRATUM          response to mining.subscribe
+                        */
+                        switch (_conn.GetStratumMode())
+                        {
+                            case StratumVersion.EthereumStratum2:
+                                isSuccess = result.ValueKind == JsonValueKind.Object &&
+                                    result.TryGetProperty("proto", out z) && z.GetString() == "EthereumStratum/2.0.0" &&
+                                    result.TryGetProperty("encoding", out z) && z.TryGetProperty("resume", out z) &&
+                                    result.TryGetProperty("timeout", out z) && z.TryGetProperty("maxerrors", out z) &&
+                                    result.TryGetProperty("node", out z);
+                                if (!isSuccess)
+                                {
+
+                                    // If no autodetection the connection is not usable with this stratum flavor
+                                    if (_conn.StratumModeConfirmed())
+                                    {
+                                        _conn.MarkUnrecoverable();
+                                        Console.WriteLine("Negotiation of EthereumStratum/2.0.0 failed. Change your connection parameters");
+                                    }
+                                    else
+                                        Console.WriteLine("Negotiation of EthereumStratum/2.0.0 failed. Trying another ...");
+                                    // Disconnect
+                                    Task.Run(DisconnectAsync);
+                                    break;
+                                }
+
+                                // Selected flavour is confirmed
+                                _conn.SetStratumMode(StratumVersion.EthereumStratum2, true);
+                                Console.WriteLine("Stratum mode : EthereumStratum/2.0.0");
+                                StartSession();
+
+                                // Send request for subscription
+                                Send(new
+                                {
+                                    id = 2U,
+                                    method = "mining.subscribe",
+                                });
+                                EnqueueResponsePlea();
+                                break;
+
+                            case StratumVersion.EthereumStratum:
+                                isSuccess = result.ValueKind == JsonValueKind.Array && result[0].ValueKind == JsonValueKind.Array &&
+                                    result[0].GetArrayLength() == 3 && result[0][2].GetString() == "EthereumStratum/1.0.0";
+                                if (!isSuccess)
+                                {
+                                    // If no autodetection the connection is not usable with this stratum flavor
+                                    if (_conn.StratumModeConfirmed())
+                                    {
+                                        _conn.MarkUnrecoverable();
+                                        Console.WriteLine("Negotiation of EthereumStratum/1.0.0 (NiceHash) failed. Change your  connection parameters");
+                                    }
+                                    else Console.WriteLine("Negotiation of EthereumStratum/1.0.0 (NiceHash) failed. Trying another ...");
+                                    // Disconnect
+                                    Task.Run(DisconnectAsync);
+                                    break;
+                                }
+
+                                // Selected flavour is confirmed
+                                _conn.SetStratumMode(StratumVersion.EthereumStratum, true);
+                                Console.WriteLine("Stratum mode : EthereumStratum/1.0.0 (NiceHash)");
+                                StartSession();
+                                _session.Subscribed = true; //: atomic
+
+                                // Notify we're ready for extra nonce subscribtion on the fly reply to this message should not perform any logic
+                                Send(new
+                                {
+                                    id = 2U,
+                                    method = "mining.extranonce.subscribe",
+                                    @params = new string[0],
+                                });
+
+                                var enonce = result[0][1].GetString();
+                                if (!string.IsNullOrEmpty(enonce)) ProcessExtranonce(enonce);
+
+                                // Eventually request authorization
+                                _authPending = true; //: atomic
+                                var (user, worker, pass) = _conn.StratumUserInfo();
+                                Send(new
+                                {
+                                    id = 3U,
+                                    method = "mining.authorize",
+                                    @params = new string[] { $"{user}.{worker}{_conn.AbsolutePath}", pass },
+                                });
+                                EnqueueResponsePlea();
+                                break;
+
+                            case StratumVersion.EthProxy:
+                                if (!isSuccess)
+                                {
+                                    // If no autodetection the connection is not usable with this stratum flavor
+                                    if (_conn.StratumModeConfirmed())
+                                    {
+                                        _conn.MarkUnrecoverable();
+                                        Console.WriteLine("Negotiation of Eth-Proxy compatible failed. Change your connection parameters");
+                                    }
+                                    else Console.WriteLine("Negotiation of Eth-Proxy compatible failed. Trying another ...");
+                                    // Disconnect
+                                    Task.Run(DisconnectAsync);
+                                    break;
+                                }
+
+                                // Selected flavour is confirmed
+                                _conn.SetStratumMode(StratumVersion.EthProxy, true);
+                                Console.WriteLine("Stratum mode : Eth-Proxy compatible");
+                                StartSession();
+                                _session.Subscribed = true; //: atomic;
+                                _session.Authorized = true; //: atomic;
+
+                                // Request initial work
+                                Send(new
+                                {
+                                    id = 5U,
+                                    method = "eth_getWork",
+                                    @params = new string[0],
+                                });
+                                break;
+
+                            case StratumVersion.Stratum:
+                                if (!isSuccess)
+                                {
+                                    // If no autodetection the connection is not usable with this stratum flavor
+                                    if (_conn.StratumModeConfirmed())
+                                    {
+                                        _conn.MarkUnrecoverable();
+                                        Console.WriteLine("Negotiation of Eth-Proxy compatible failed. Change your connection parameters");
+                                    }
+                                    else Console.WriteLine("Negotiation of Eth-Proxy compatible failed. Trying another ...");
+                                    // Disconnect
+                                    Task.Run(DisconnectAsync);
+                                    break;
+                                }
+
+                                // Selected flavour is confirmed
+                                _conn.SetStratumMode(StratumVersion.Stratum, true);
+                                Console.WriteLine("Stratum mode : Stratum");
+                                StartSession();
+                                _session.Subscribed = true; //: atomic
+
+                                // Request authorization
+                                _authPending = true; //: atomic
+                                (user, worker, pass) = _conn.StratumUserInfo();
+                                Send(new
+                                {
+                                    id = 3U,
+                                    method = "mining.authorize",
+                                    @params = new string[] { $"{user}.{worker}{_conn.AbsolutePath}", pass },
+                                }, "2.0");
+                                EnqueueResponsePlea();
+                                break;
+
+                            default: throw new ArgumentOutOfRangeException(nameof(_conn));
+                        }
+                        break;
+
+                    case 2U:
+                        // For EthereumStratum/1.0.0
+                        // This is the response to mining.extranonce.subscribe according to this https://github.com/nicehash/Specifications/blob/master/NiceHash_extranonce_subscribe_extension.txt
+                        // In all cases, client does not perform any logic when receiving back these replies.
+                        // With mining.extranonce.subscribe subscription, client should handle extranonce1 changes correctly
+                        // Nothing to do here.
+
+                        // For EthereumStratum/2.0.0
+                        // This is the response to mining.subscribe https://github.com/AndreaLanfranchi/EthereumStratum-2.0.0#session-handling---response-to-subscription
+                        if (_conn.GetStratumMode() == StratumVersion.EthereumStratum2)
+                        {
+                            responseDelayMs = DequeueResponsePlea();
+                            if (result.ValueKind != JsonValueKind.String || !string.IsNullOrEmpty(result.GetString()))
+                            {
+                                // Got invalid session id which is mandatory
+                                Console.WriteLine("Got invalid or missing session id. Disconnecting ... ");
+                                _conn.MarkUnrecoverable();
+                                Task.Run(DisconnectAsync);
+                                break;
+                            }
+
+                            _session.SessionId = result.GetString();
+                            _session.Subscribed = true; //: atomic
+
+                            // Request authorization
+                            _authPending = true;
+                            var (user, worker, pass) = _conn.StratumUserInfo();
+                            Send(new
+                            {
+                                id = 3U,
+                                method = "mining.authorize",
+                                @params = new string[] { $"{user}.{worker}{_conn.AbsolutePath}", pass },
+                            });
+                            EnqueueResponsePlea();
+                        }
+                        break;
+
+                    case 3U:
+                        responseDelayMs = DequeueResponsePlea();
+                        if (_conn.GetStratumMode() == StratumVersion.EthereumStratum2)
+                        {
+                            // Response to "mining.authorize" (https://en.bitcoin.it/wiki/Stratum_mining_protocol#mining.authorize)
+                            // Result should be boolean, some pools also throw an error, so isSuccess can be false Due to this reevaluate isSuccess
+                            if (isSuccess && result.ValueKind == JsonValueKind.False)
+                                isSuccess = false;
+
+                            _authPending = false; //: atomic
+                            _session.Authorized = isSuccess; //: atomic
+
+                            if (!IsAuthorized)
+                            {
+                                Console.WriteLine($"Worker {Ansi.White}{_conn.UserInfo}{Ansi.Reset} not authorized : {errReason}");
+                                _conn.MarkUnrecoverable();
+                                Task.Run(DisconnectAsync);
+                                break;
+                            }
+                            else Console.WriteLine($"Authorized worker {_conn.UserInfo}");
+                        }
+                        else
+                        {
+                            if (!isSuccess || result.ValueKind != JsonValueKind.String || !string.IsNullOrEmpty(result.GetString()))
+                            {
+                                // Got invalid session id which is mandatory
+                                Console.WriteLine($"Worker {Ansi.White}{_conn.UserInfo}{Ansi.Reset} not authorized : {errReason}");
+                                _conn.MarkUnrecoverable();
+                                Task.Run(DisconnectAsync);
+                                break;
+                            }
+                            _authPending = false; //: atomic
+                            _session.Authorized = true; //: atomic
+                            _session.WorkerId = result.GetString();
+                            Console.WriteLine($"Authorized worker {_conn.UserInfo}");
+                            // Nothing else to here. Wait for notifications from pool
+                        }
+                        break;
+
+                    case 5U:
+                        // This is the response we get on first get_work request issued
+                        // in mode EthStratumClient::ETHPROXY thus we change it to a mining.notify notification
+                        if (_conn.GetStratumMode() == StratumVersion.EthProxy && result.ValueKind == JsonValueKind.Array)
+                        {
+                            method = "mining.notify";
+                            notification = true;
+                            break;
+                        }
+                        break;
+
+                    case 9U:
+                        // Response to hashrate submit
+                        // Shall we do anything ? Hashrate submit is actually out of stratum spec
+                        if (!isSuccess)
+                            Console.WriteLine($"Submit hashRate failed : {errReason ?? "Unspecified error"}");
+                        break;
+
+                    case uint n when (n >= 40 && n <= _solutionSubmittedMaxId):
+                        responseDelayMs = DequeueResponsePlea();
+                        if (_conn.GetStratumMode() == StratumVersion.EthereumStratum2)
+                        {
+                            // In EthereumStratum/2.0.0 we can evaluate the severity of the error.
+                            // An 2xx error means the solution have been accepted but is likely stale
+                            var isStale = false;
+                            if (!isSuccess)
+                            {
+                                var errCode = res.GetProperty("error").TryGetProperty("code", out z) ? z.GetString() : null;
+                                if (errCode != null && errCode.StartsWith("2"))
+                                    isSuccess = isStale = true;
+                            }
+
+                            var minerIndex = (int)(id - 40);
+                            if (isSuccess)
+                                _onSolutionAccepted?.Invoke(_f, this, responseDelayMs, minerIndex, isStale);
+                            else
+                            {
+                                Console.WriteLine($"Reject reason : {errReason ?? "Unspecified"}");
+                                _onSolutionRejected?.Invoke(_f, this, responseDelayMs, minerIndex);
+                            }
+                        }
+                        else
+                        {
+                            // Response to solution submission mining.submit (https://en.bitcoin.it/wiki/Stratum_mining_protocol#mining.submit)
+                            // Result should be boolean, some pools also throw an error, so _isSuccess can be false Due to this reevaluate _isSucess
+                            if (isSuccess && result.ValueKind == JsonValueKind.False)
+                                isSuccess = false;
+
+                            var minerIndex = (int)(id - 40);
+                            if (isSuccess)
+                                _onSolutionAccepted?.Invoke(_f, this, responseDelayMs, minerIndex, false);
+                            else
+                            {
+                                Console.WriteLine($"Reject reason : {errReason ?? "Unspecified"}");
+                                _onSolutionRejected?.Invoke(_f, this, responseDelayMs, minerIndex);
+                            }
+                        }
+                        break;
+
+                    case 999U:
+                        if (isSuccess)
+                            break;
+                        // This unfortunate case should not happen as none of the outgoing requests is marked with id 999 However it has been tested that ethermine.org responds with this id when
+                        // error replying to either mining.subscribe (1) or mining.authorize requests (3) To properly handle this situation we need to rely on Subscribed/Authorized states
+                        if (!_conn.StratumModeConfirmed())
+                            switch (_conn.GetStratumMode())
+                            {
+                                case StratumVersion.EthereumStratum2: Console.WriteLine("Negotiation of EthereumStratum/2.0.0 failed. Trying another ..."); break;
+                                case StratumVersion.EthereumStratum: Console.WriteLine("Negotiation of EthereumStratum/1.0.0 failed. Trying another ..."); break;
+                                case StratumVersion.EthProxy: Console.WriteLine("Negotiation of Eth-Proxy compatible failed. Trying another ..."); break;
+                                case StratumVersion.Stratum: Console.WriteLine("Negotiation of Stratum failed."); break;
+                                default: throw new ArgumentOutOfRangeException(nameof(_conn));
+                            }
+                        // Subscription pending
+                        else if (!IsSubscribed)
+                            Console.WriteLine($"Subscription failed : {errReason ?? "Unspecified error"}");
+                        // Authorization pending
+                        else if (IsSubscribed && !IsAuthorized)
+                            Console.WriteLine($"Worker not authorized : {errReason ?? "Unspecified error"}");
+                        // Disconnect and Proceed with next step of autodetection
+                        Task.Run(DisconnectAsync);
+                        break;
+
+                    default:
+                        Console.WriteLine($"Got response for unknown message id [{id}] Discarding...");
+                        break;
+                }
+                return null;
+            }
+
+            // note: Do not process any notification unless login validated which means we have detected proper stratum mode.
+            if (!_conn.StratumModeConfirmed())
+                return null;
+
+            switch (method)
+            {
+                case "mining.notify":
+                    if (_conn.GetStratumMode() == StratumVersion.EthereumStratum2)
+                    {
+                        /*
+                        {
+                            "method": "mining.notify",
+                            "params": [
+                                "bf0488aa",
+                                "6526d5"
+                                "645cf20198c2f3861e947d4f67e3ab63b7b2e24dcc9095bd9123e7b33371f6cc",
+                                "0"
+                            ]
+                        }
+                        */
+                        if (_session == null || !_session.FirstMiningSet)
+                        {
+                            Console.WriteLine("Got mining.notify before mining.set message. Discarding ...");
+                            break;
+                        }
+
+                        if (params_.ValueKind != JsonValueKind.Array || params_.GetArrayLength() != 4)
+                        {
+                            Console.WriteLine("Got invalid mining.notify message. Discarding ...");
+                            break;
+                        }
+
+                        return new WorkPackage
+                        {
+                            Job = params_[0].GetString(),
+                            Block = int.Parse(params_[1].GetString(), NumberStyles.HexNumber),
+                            Header = new H256($"0x{params_[1].GetString().PadLeft(64, '0')}"),
+                            Boundary = _session.NextWorkBoundary,
+                            Epoch = _session.Epoch,
+                            Algo = _session.Algo,
+                            StartNonce = _session.ExtraNonce,
+                            ExSizeBytes = _session.ExtraNonceSizeBytes
+                        };
+                    }
+                    else
+                    {
+                        // Discard jobs if not properly subscribed or if a job for this transmission has already been processed
+                        if (!IsSubscribed) // || _current != null)
+                            break;
+
+                        // Workaround for Nanopool wrong implementation see issue # 1348
+                        var prmIdx = 1;
+                        if (_conn.GetStratumMode() == StratumVersion.EthProxy && result.ValueKind != JsonValueKind.Undefined)
+                        {
+                            prmIdx = 0;
+                            params_ = result;
+                        }
+
+                        if (params_.ValueKind != JsonValueKind.Array || params_.GetArrayLength() == 0)
+                        {
+                            Console.WriteLine("Got invalid mining.notify message. Discarding ...");
+                            break;
+                        }
+
+                        if (_conn.GetStratumMode() == StratumVersion.EthereumStratum)
+                        {
+                            var seedHash = params_[1].GetString();
+                            var headerHash = params_[2].GetString();
+                            if (!string.IsNullOrEmpty(headerHash) && !string.IsNullOrEmpty(seedHash))
+                                return new WorkPackage
+                                {
+                                    Job = params_[0].GetString(),
+                                    Seed = new H256(seedHash),
+                                    Header = new H256(headerHash),
+                                    Boundary = _session.NextWorkBoundary,
+                                    StartNonce = _session.ExtraNonce,
+                                    ExSizeBytes = _session.ExtraNonceSizeBytes,
+                                    Block = -1
+                                };
+                        }
+                        else
+                        {
+                            var headerHash = params_[prmIdx++].GetString();
+                            var seedHash = params_[prmIdx++].GetString();
+                            var shareTarget = params_[prmIdx++].GetString();
+                            // Only some eth-proxy compatible implementations carry the block number namely ethermine.org
+                            var block = -1;
+                            if (_conn.GetStratumMode() == StratumVersion.EthProxy && params_.GetArrayLength() > prmIdx && params_[prmIdx].GetString().StartsWith("0x"))
+                                try
+                                {
+                                    block = int.Parse(params_[prmIdx].GetString(), NumberStyles.HexNumber);
+                                    /*
+                                    check if the block number is in a valid range
+                                    A year has ~31536000 seconds
+                                    50 years have ~1576800000
+                                    assuming a (very fast) blocktime of 10s:
+                                    ==> in 50 years we get 157680000 (=0x9660180) blocks
+                                    */
+                                    if (block > 0x9660180)
+                                        throw new Exception();
+                                }
+                                catch
+                                {
+                                    block = -1;
+                                }
+                            // coinmine.pl fix
+                            var l = shareTarget.Length;
+                            if (l < 66)
+                                shareTarget = $"0x{shareTarget.Substring(2).PadLeft(66, '0')}";
+                            return new WorkPackage
+                            {
+                                Job = params_[0].GetString(),
+                                Seed = new H256(seedHash),
+                                Header = new H256(headerHash),
+                                Boundary = new H256(shareTarget)
+                            };
+                        }
+                    }
+                    break;
+
+                case "mining.set_target":
+                    if (_conn.GetStratumMode() != StratumVersion.Stratum)
+                        goto case null;
+                    if (params_.ValueKind == JsonValueKind.Array)
+                    {
+                        var target2 = params_[0].GetString();
+                        target2 = $"0x{target2.PadLeft(64, '0')}";
+                        _session.NextWorkBoundary = new H256(target2);
+                    }
+                    break;
+
+                case "mining.set_difficulty":
+                    if (_conn.GetStratumMode() != StratumVersion.EthereumStratum)
+                        goto case null;
+                    if (params_.ValueKind == JsonValueKind.Array)
+                    {
+                        var nextWorkDifficulty = Math.Max(params_[0].GetDouble(), 0.0001);
+                        _session.NextWorkBoundary = new H256(nextWorkDifficulty.ToTargetFromDiff());
+                    }
+                    break;
+
+                case "mining.set_extranonce":
+                    if (_conn.GetStratumMode() != StratumVersion.EthereumStratum)
+                        goto case null;
+                    if (params_.ValueKind == JsonValueKind.Array)
+                    {
+                        var enonce = params_[0].GetString();
+                        if (!string.IsNullOrEmpty(enonce))
+                            ProcessExtranonce(enonce);
+                    }
+                    break;
+
+                case "mining.set":
+                    if (_conn.GetStratumMode() != StratumVersion.EthereumStratum2)
+                        goto case null;
+                    /*
+                    {
+                        "method": "mining.set",
+                        "params": {
+                            "epoch" : "dc",
+                            "target" : "0112e0be826d694b2e62d01511f12a6061fbaec8bc02357593e70e52ba",
+                            "algo" : "ethash",
+                            "extranonce" : "af4c"
+                        }
+                    }
+                    */
+                    if (params_.ValueKind != JsonValueKind.Object || !params_.EnumerateObject().Any())
+                    {
+                        Console.WriteLine("Got invalid mining.set message. Discarding ...");
+                        break;
+                    }
+                    _session.FirstMiningSet = true;
+                    var timeout = params_.TryGetProperty("timeout", out z) ? z.GetString() : null;
+                    var epoch = params_.TryGetProperty("epoch", out z) ? z.GetString() : null;
+                    var target = params_.TryGetProperty("target", out z) ? z.GetString() : null;
+                    if (!string.IsNullOrEmpty(timeout))
+                        _session.Timeout = int.Parse(timeout, NumberStyles.HexNumber);
+                    if (!string.IsNullOrEmpty(epoch))
+                        _session.Epoch = int.Parse(epoch, NumberStyles.HexNumber);
+                    if (!string.IsNullOrEmpty(target))
+                    {
+                        target = $"0x{target.PadLeft(64, '0')}";
+                        _session.NextWorkBoundary = new H256(target);
+                    }
+                    _session.Algo = params_.TryGetProperty("algo", out z) ? z.GetString() : "ethash";
+                    {
+                        var enonce = params_.TryGetProperty("extranonce", out z) ? z.GetString() : null;
+                        if (!string.IsNullOrEmpty(enonce))
+                            ProcessExtranonce(enonce);
+                    }
+                    break;
+
+                case "mining.bye":
+                    if (_conn.GetStratumMode() != StratumVersion.EthereumStratum2)
+                        goto case null;
+                    Console.WriteLine($"{_conn.Host} requested connection close. Disconnecting ...");
+                    Task.Run(DisconnectAsync);
+                    break;
+
+                case "client.get_version":
+                    if (rpc == null)
+                        Send(new
+                        {
+                            id,
+                            result = ProjectNameWithVersion,
+                            error = (string)null,
+                        }, rpc);
+                    else
+                        Send(new
+                        {
+                            id,
+                            result = ProjectNameWithVersion,
+                        }, rpc);
+                    break;
+
+                case null:
+                default:
+                    Console.WriteLine($"Got unknown method [{method}] from pool. Discarding...");
+                    // Respond back to issuer
+                    Send(new
+                    {
+                        id,
+                        error = "Method not found",
+                    }, rpc);
+                    break;
+            }
+            return null;
         }
 
         public override void SubmitHashrate(ulong rate, string id)
@@ -1480,7 +1145,7 @@ If you do the latter please be advised you might expose yourself to the risk of 
             if (!IsConnected)
                 return;
 
-            var (user, worker, pass) = _conn.StratumUserInfo();
+            var (_, worker, _) = _conn.StratumUserInfo();
             if (_conn.GetStratumMode() != StratumVersion.EthereumStratum2)
                 // There is no stratum method to submit the hashrate so we use the rpc variant.
                 // Note !!
@@ -1489,14 +1154,13 @@ If you do the latter please be advised you might expose yourself to the risk of 
                 Send(new
                 {
                     id = 9U,
-                    jsonrpc = "2.0",
                     worker,
                     method = "eth_submitHashrate",
                     @params = new string[] {
                         $"0x{rate:x}",
                         id
                     }.ClampArray()
-                });
+                }, "2.0");
             else
                 Send(new
                 {
@@ -1517,16 +1181,14 @@ If you do the latter please be advised you might expose yourself to the risk of 
                 return;
             }
 
-            object req;
             var (user, worker, pass) = _conn.StratumUserInfo();
             switch (_conn.GetStratumMode())
             {
                 case StratumVersion.Stratum:
-                    req = new
+                    Send(new
                     {
                         id = 40 + solution.MIdx,
                         method = "mining.submit",
-                        jsonrpc = "2.0",
                         @parms = new string[]
                         {
                             user,
@@ -1536,10 +1198,11 @@ If you do the latter please be advised you might expose yourself to the risk of 
                             $"0x{solution.MixHash:x}",
                             worker,
                         }.ClampArray()
-                    };
+                    }, "2.0");
                     break;
+
                 case StratumVersion.EthProxy:
-                    req = new
+                    Send(new
                     {
                         id = 40 + solution.MIdx,
                         method = "eth_submitWork",
@@ -1550,10 +1213,11 @@ If you do the latter please be advised you might expose yourself to the risk of 
                             $"0x{solution.MixHash:x}",
                             worker,
                          }.ClampArray()
-                    };
+                    });
                     break;
+
                 case StratumVersion.EthereumStratum:
-                    req = new
+                    Send(new
                     {
                         id = 40 + solution.MIdx,
                         method = "mining.submit",
@@ -1563,10 +1227,11 @@ If you do the latter please be advised you might expose yourself to the risk of 
                             solution.Work.Job,
                             $"{solution.Nonce:x}".Substring(solution.Work.ExSizeBytes),
                          }
-                    };
+                    });
                     break;
+
                 case StratumVersion.EthereumStratum2:
-                    req = new
+                    Send(new
                     {
                         id = 40 + solution.MIdx,
                         method = "mining.submit",
@@ -1576,115 +1241,21 @@ If you do the latter please be advised you might expose yourself to the risk of 
                             $"{solution.Nonce:x}".Substring(solution.Work.ExSizeBytes),
                             _session.WorkerId
                          }.ClampArray()
-                    };
+                    });
                     break;
+
                 default: throw new ArgumentOutOfRangeException(nameof(StratumVersion), _conn.GetStratumMode().ToString());
             }
-
             EnqueueResponsePlea();
-            Send(req);
         }
 
+        #region Send / Recieve
 
-        async Task RecvSocketData()
-        {
-            while (IsConnected)
-            {
-                //try
-                //{
-                //    var buffer = new byte[_socket.ReceiveBufferSize];
-                //    var bytes = _stream.Read(buffer, 0, buffer.Length);
-                //}
-                //catch (Exception ec)
-                //{
-                //    if (IsConnected)
-                //    {
-                //        if (_authPending != false) //: atomic
-                //        {
-                //            Console.WriteLine("Error while waiting for authorization from pool");
-                //            Console.WriteLine("Double check your pool credentials.");
-                //            _conn.MarkUnrecoverable();
-                //        }
-                //        //if ((ex.category() == boost::asio::error::get_ssl_category()) && (ERR_GET_REASON(ec.value()) == SSL_RECEIVED_SHUTDOWN))
-                //        //    Console.WriteLine($"SSL Stream remotely closed by {_conn.Host}");
-                //        //else if (ex == boost::asio::error::eof)
-                //        //    Console.WriteLine($"Connection remotely closed by {_conn.Host}");
-                //        //else
-                //        Console.WriteLine($"Socket read failed: {ec.Message}");
-                //        Task.Run(DisconnectAsync);
-                //    }
-                //    return;
-                //}
-
-                // Due to the nature of io_service's queue and the implementation of the loop this event may trigger
-                // late after clean disconnection. Check status of connection before triggering all stack of calls
-
-                // DO NOT DO THIS !!!!!
-                // std::istream is(&m_recvBuffer);
-                // std::string message;
-                // getline(is, message)
-                /*
-                There are three reasons :
-                1 - Previous async_read_until calls this handler (aside from error codes)
-                    with the number of bytes in the buffer's get area up to and including
-                    the delimiter. So we know where to split the line
-                2 - Boost's documentation clearly states that after a succesfull
-                    async_read_until operation the stream buffer MAY contain additional
-                    data which HAVE to be left in the buffer for subsequent read operations.
-                    If another delimiter exists in the buffer then it will get caught
-                    by the next async_read_until()
-                3 - std::istream is(&m_recvBuffer) will CONSUME ALL data in the buffer
-                    thus invalidating the previous point 2
-                */
-
-                // Extract received message and free the buffer
-                //std::string rx_message(boost::asio::buffer_cast<const char*> (m_recvBuffer.data()), bytes_transferred);
-                //m_recvBuffer.consume(bytes_transferred);
-                //m_message.append(rx_message);
-
-                // Process each line in the transmission
-                // NOTE : as multiple jobs may come in with a single transmission only the last will be dispatched
-                _newJobProcessed = false;
-                string line = _recvBuf.ReadLine().Trim();
-                while (line != null)
-                {
-                    // Out received message only for debug purpouses
-                    //if (_logOptions & LOG_JSON)
-                    Console.WriteLine($" << {line}");
-
-                    // Test validity of chunk and process
-                    try
-                    {
-                        var msg = JsonDocument.Parse(line)?.RootElement;
-                        if (msg != null)
-                        {
-                            try
-                            {
-                                // Run in sync so no 2 different async reads may overlap
-                                ProcessResponse(msg.Value);
-                            }
-                            catch (Exception ex2)
-                            {
-                                Console.WriteLine($"Stratum got invalid Json message : {ex2.Message}");
-                            }
-                        }
-                    }
-                    catch (Exception ex3)
-                    {
-                        Console.WriteLine($"Stratum got invalid Json message : {ex3.Message}");
-                    }
-
-                    line = _recvBuf.ReadLine().Trim();
-                }
-
-                // There is a new job - dispatch it
-                _onWorkReceived?.Invoke(_f, this, _current);
-            }
-        }
-
-        void Send(object req)
+        void Send(object req, string rpc = null)
         {
             var line = req is string z ? z : JsonSerializer.Serialize(req);
+            if (rpc != null)
+                line = $"{line.Substring(0, line.Length - 1)},\"jsonrpc\":\"{rpc}\"}}";
             _txQueue.Enqueue(line);
             if (Interlocked.CompareExchange(ref _txPending, 0, 1) != 1)
                 Task.Run(SendSocketData);
@@ -1708,7 +1279,9 @@ If you do the latter please be advised you might expose yourself to the risk of 
 
                 try
                 {
-                    _sendBuf.WriteLine(line);
+                    _sendBuf.Write(line);
+                    _sendBuf.Write('\n');
+                    _sendBuf.Flush();
                 }
                 catch (Exception ex)
                 {
@@ -1731,7 +1304,6 @@ If you do the latter please be advised you might expose yourself to the risk of 
                     return;
                 }
             }
-            _stream.Flush();
 
             // Register last transmission tstamp to prevent timeout in EthereumStratum/2.0.0
             if (_session != null && _conn.GetStratumMode() == StratumVersion.EthereumStratum2)
@@ -1741,6 +1313,66 @@ If you do the latter please be advised you might expose yourself to the risk of 
             else SendSocketData();
         }
 
+        Task RecvSocketData()
+        {
+            while (IsConnected)
+            {
+                //catch (Exception ec)
+                //{
+                //    if (IsConnected)
+                //    {
+                //        if (_authPending != false) //: atomic
+                //        {
+                //            Console.WriteLine("Error while waiting for authorization from pool");
+                //            Console.WriteLine("Double check your pool credentials.");
+                //            _conn.MarkUnrecoverable();
+                //        }
+                //        //if ((ex.category() == boost::asio::error::get_ssl_category()) && (ERR_GET_REASON(ec.value()) == SSL_RECEIVED_SHUTDOWN))
+                //        //    Console.WriteLine($"SSL Stream remotely closed by {_conn.Host}");
+                //        //else if (ex == boost::asio::error::eof)
+                //        //    Console.WriteLine($"Connection remotely closed by {_conn.Host}");
+                //        //else
+                //        Console.WriteLine($"Socket read failed: {ec.Message}");
+                //        Task.Run(DisconnectAsync);
+                //    }
+                //    return;
+                //}
+
+                // Process each line in the transmission
+                // NOTE : as multiple jobs may come in with a single transmission only the last will be dispatched
+                var line = _recvBuf.ReadLine().Trim();
+                while (line != null)
+                {
+                    if (line.Length == 0)
+                        continue;
+
+                    // Out received message only for debug purpouses
+                    //if (_logOptions & LOG_JSON)
+                    Console.WriteLine($" << {line}");
+
+                    // Test validity of chunk and process
+                    try
+                    {
+                        var msg = JsonDocument.Parse(line).RootElement;
+                        var res = ProcessResponse(msg);
+                        if (res is WorkPackage current)
+                        {
+                            // There is a new job - dispatch it
+                            _current_Timestamp = DateTime.Now;
+                            _onWorkReceived?.Invoke(_f, this, current);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Stratum got invalid Json message : {ex.Message}");
+                    }
+                    line = _recvBuf.ReadLine().Trim();
+                }
+            }
+            return Task.CompletedTask;
+        }
+
+        #endregion
 
         //void OnSSLShutdownCompleted(Exception ex)
         //{

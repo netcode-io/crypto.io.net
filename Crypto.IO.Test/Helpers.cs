@@ -4,7 +4,7 @@ using System.IO;
 using System.Text;
 using Xunit.Abstractions;
 
-namespace Crypto.IO.Test
+namespace Crypto.IO
 {
     internal class TestOutputConverter : TextWriter
     {
